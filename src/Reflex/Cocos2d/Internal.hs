@@ -62,7 +62,7 @@ instance ( MonadIO m, MonadAsyncException m, Functor m
     askParent = Graph $ view graphParent
     schedulePostBuild a = Graph $ graphPostBuild %= (a>>)
     addVoidAction a = Graph $ graphVoidActions %= (a:)
-    subGraph n child = Graph $ local (graphParent .~ toNode n) $ unGraph child
+    subGraph n child = Graph $ local (graphParent .~ n) $ unGraph child
     askRunWithActions = Graph $ view graphRunWithActions 
 
 data Cocos2dEnv = Cocos2dEnv { _cocos2dRunWithActions :: !(ActionTrigger Spider) }
