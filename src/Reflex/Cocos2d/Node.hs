@@ -110,7 +110,6 @@ layerColor conf child = liftIO createLayerColor >>= \l -> integrate l (conf ^. n
 layerColor_ :: NodeGraph t m => LayerColorConfig t -> m ()
 layerColor_ conf = layerColor conf (return ())
 
-
 applyNodeConfig :: (IsNode n, NodeGraph t m) => n -> NodeConfig t -> m ()
 applyNodeConfig n (NodeConfig pos size anchor skew zIndex rotation scale visible color opacity cascadeColor cascadeOpacity) = do
     -- schedule post all values that requires lazy input
