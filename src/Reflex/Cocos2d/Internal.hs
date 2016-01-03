@@ -124,9 +124,9 @@ scene :: (MonadReflexHost t m, MonadIO m, MonadReflexAction t m) => Graph t () -
 scene graph = do
     scene <- liftIO createScene
     runWithActions <- askRunWithActions
-    voidAction <- runHostFrame $ do
+    voidActions <- runHostFrame $ do
         GraphState postBuild vas <- execStateT (runReaderT (unGraph graph) (GraphEnv (toNode scene) runWithActions)) (GraphState (return ()) [])
         postBuild
-        return $ mergeWith (>>) vas
-    addVoidAction voidAction
+        return vas
+    mapM addVoidAction voidActions
     return scene
