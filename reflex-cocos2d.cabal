@@ -51,7 +51,8 @@ library
   exposed-modules:     Reflex.Cocos2d,
                        Reflex.Cocos2d.Class,
                        Reflex.Cocos2d.Internal,
-                       Reflex.Cocos2d.Node
+                       Reflex.Cocos2d.Node,
+                       Reflex.Cocos2d.Event
   
   -- Modules included in this library but not exported.
   -- other-modules:       
@@ -61,9 +62,11 @@ library
   
   -- Other library packages from which modules are imported.
   build-depends:       base >=4.8 && <4.9,
+                       containers,
                        transformers,
                        exception-transformers,
                        dependent-sum,
+                       dependent-sum-template,
                        colour,
                        linear,
                        reflex,

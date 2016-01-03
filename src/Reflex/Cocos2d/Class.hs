@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -28,3 +30,7 @@ class (ReflexHost t, Monad m) => MonadReflexAction t m | m -> t where
     -- | Return the function that allows to propagate events and execute
     -- the action handlers
     askRunWithActions :: m (ActionTrigger t)
+
+class (MonadReflexHost t m, MonadIO m, MonadReflexAction t m) => MonadCocos2dHost t m where
+
+instance (MonadReflexHost t m, MonadIO m, MonadReflexAction t m) => MonadCocos2dHost t m where
