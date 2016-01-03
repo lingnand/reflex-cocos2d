@@ -55,6 +55,6 @@ globalEvents = do
     return $! e
 
 --- convenience function to obtain currently held keys
-dynKeymap :: (Reflex t, MonadHold t m, MonadFix m) => Event t Key -> Event t Key -> m (Dynamic t (S.Set Key))
-dynKeymap keydown keyup = foldDyn ($) S.empty $ leftmost [ S.insert <$> keydown
-                                                         , S.delete <$> keyup ]
+dynKeysDown :: (Reflex t, MonadHold t m, MonadFix m) => Event t Key -> Event t Key -> m (Dynamic t (S.Set Key))
+dynKeysDown keyPressed keyReleased = foldDyn ($) S.empty $ leftmost [ S.insert <$> keyPressed
+                                                                    , S.delete <$> keyReleased ]
