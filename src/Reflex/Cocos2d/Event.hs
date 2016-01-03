@@ -30,7 +30,7 @@ data EventType a where
 deriveGEq ''EventType
 deriveGCompare ''EventType
 
-globalEvents :: MonadCocos2dHost t m => m (EventSelector t EventType)
+globalEvents :: (MonadReflexCreateTrigger t m, MonadReflexAction t m) => m (EventSelector t EventType)
 globalEvents = do
     runWithActions <- askRunWithActions
     e <- newFanEventWithTrigger $ \eventType et ->
@@ -55,6 +55,7 @@ globalEvents = do
     return $! e
 
 --- convenience function to obtain currently held keys
+--- TODO: use foldDynMaybe to reduce non-changing events?
 dynKeysDown :: (Reflex t, MonadHold t m, MonadFix m) => Event t Key -> Event t Key -> m (Dynamic t (S.Set Key))
 dynKeysDown keyPressed keyReleased = foldDyn ($) S.empty $ leftmost [ S.insert <$> keyPressed
                                                                     , S.delete <$> keyReleased ]

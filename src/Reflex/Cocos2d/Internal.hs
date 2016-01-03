@@ -120,7 +120,7 @@ runCocos2dHost cocos2d = do
     return result
 
 -- construct a new scene with a NodeGraph
-scene :: MonadCocos2dHost t m => Graph t () -> m Scene
+scene :: (MonadReflexHost t m, MonadIO m, MonadReflexAction t m) => Graph t () -> m Scene
 scene graph = do
     scene <- liftIO createScene
     runWithActions <- askRunWithActions
