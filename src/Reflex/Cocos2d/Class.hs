@@ -17,16 +17,16 @@ import JavaScript.Cocos2d.Node
 
 type ActionTrigger t = [DSum (EventTrigger t)] -> IO ()
 
-class ( Reflex t, MonadHold t m, MonadIO m, MonadAsyncException m, Functor m
-      , MonadAsyncException (HostFrame t), Functor (HostFrame t)
-      , MonadFix m, MonadReflexAction t m ) => NodeGraph t m where
+class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
+      , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
+      , MonadAsyncException m, MonadAsyncException (HostFrame t)) => NodeGraph t m where
     askParent :: m Node
     subGraph :: Node -> m a -> m a
     -- | Schedule an action to occur after the current cohort has been built; this is necessary because Behaviors built in the current cohort may not be read until after it is complete
     schedulePostBuild :: HostFrame t () -> m ()
-
-class (ReflexHost t, Monad m) => MonadReflexAction t m | m -> t where
-    addVoidAction :: Event t (HostFrame t ()) -> m ()
+    performEvent_ :: Event t (HostFrame t ()) -> m ()
+    -- performEvent
+    -- performEventAsync (we can add it if we need to)
     -- | Return the function that allows to propagate events and execute
     -- the action handlers
     askRunWithActions :: m (ActionTrigger t)

@@ -30,7 +30,7 @@ data EventType a where
 deriveGEq ''EventType
 deriveGCompare ''EventType
 
-globalEvents :: (MonadReflexCreateTrigger t m, MonadReflexAction t m) => m (EventSelector t EventType)
+globalEvents :: NodeGraph t m => m (EventSelector t EventType)
 globalEvents = do
     runWithActions <- askRunWithActions
     e <- newFanEventWithTrigger $ \eventType et ->

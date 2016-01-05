@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE JavaScriptFFI #-}
@@ -115,7 +116,7 @@ applyNodeConfig n (NodeConfig pos size anchor skew zIndex rotation scale visible
     -- schedule post all values that requires lazy input
     let app setter dyn = do
             schedulePostBuild $ liftIO . setter n =<< sample (current dyn)
-            addVoidAction $ liftIO . setter n <$> updated dyn
+            performEvent_ $ liftIO . setter n <$> updated dyn
         vset xset yset n (V2 x y) = xset n x >> yset n y 
     app (vset setX setY) pos
     app (vset setWidth setHeight) size 
