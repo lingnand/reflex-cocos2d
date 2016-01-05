@@ -71,6 +71,7 @@ library
                        linear,
                        reflex,
                        lens,
+                       time,
                        data-default,
                        ghcjs-cocos2d
   
