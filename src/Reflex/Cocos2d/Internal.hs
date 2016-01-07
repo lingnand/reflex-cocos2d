@@ -17,6 +17,7 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State.Strict
 import Control.Monad.IO.Class
 import Control.Monad.Fix
+import Control.Monad.Ref
 import Control.Monad.Exception
 import Control.Lens
 import Reflex
@@ -63,23 +64,40 @@ instance MonadReflexCreateTrigger t (HostFrame t) => MonadReflexCreateTrigger t 
 instance MonadSubscribeEvent t (HostFrame t) => MonadSubscribeEvent t (Graph t) where
     subscribeEvent = Graph . lift . lift . subscribeEvent
 
+instance MonadRef (HostFrame t) => MonadRef (Graph t) where
+    type Ref (Graph t) = Ref (HostFrame t)
+    newRef = Graph . lift . lift . newRef
+    readRef = Graph . lift . lift . readRef
+    writeRef r = Graph . lift . lift . writeRef r
+
 instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (HostFrame t)
+         , MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
          , ReflexHost t ) => NodeGraph t (Graph t) where
     askParent = Graph $ view graphParent
+    askRunGraph = do
+        runWithActions <- askRunWithActions
+        return $ \p (Graph g) -> do
+            (result, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p runWithActions)) (GraphState (return ()) [])
+            return (result, postBuild, mergeWith (>>) vas)
     schedulePostBuild a = Graph $ graphPostBuild %= (a>>)
-    subGraph n child = Graph $ local (graphParent .~ n) $ unGraph child
+    subGraph n (Graph c) = Graph $ local (graphParent .~ n) c
+    subGraphWithVoidActions n child = do 
+        vas <- Graph $ use graphVoidActions <* (graphVoidActions .= [])
+        result <- subGraph n child
+        vas' <- Graph $ use graphVoidActions <* (graphVoidActions .= vas)
+        return (result, mergeWith (>>) vas')
     performEvent_ a = Graph $ graphVoidActions %= (a:)
     askRunWithActions = Graph $ view graphRunWithActions 
 
 -- construct a new scene with a NodeGraph
 mainScene :: Graph Spider () -> IO ()
-mainScene graph = do
+mainScene (Graph g) = do
     scene <- createScene
     runSpiderHost $ runHostFrame $ mdo
         let runWithActions dm = runSpiderHost $ do
                 va <- fireEventsAndRead dm $ sequence =<< readEvent voidActionHandle
                 runHostFrame $ sequence_ va
-        GraphState postBuild vas <- execStateT (runReaderT (unGraph graph) (GraphEnv (toNode scene) runWithActions)) (GraphState (return ()) [])
+        GraphState postBuild vas <- execStateT (runReaderT g (GraphEnv (toNode scene) runWithActions)) (GraphState (return ()) [])
         postBuild
         voidActionHandle <- subscribeEvent $ mergeWith (>>) vas
         liftIO $ runScene scene

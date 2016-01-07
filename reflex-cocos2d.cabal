@@ -64,6 +64,7 @@ library
   build-depends:       base >=4.8 && <4.9,
                        containers,
                        transformers,
+                       ref-tf,
                        exception-transformers,
                        dependent-sum,
                        dependent-sum-template,
