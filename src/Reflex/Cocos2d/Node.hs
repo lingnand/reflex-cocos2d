@@ -1,3 +1,5 @@
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -11,6 +13,9 @@ module Reflex.Cocos2d.Node (
     HasNodeConfig(..),
     HasLayerConfig(..),
     HasLayerColorConfig(..),
+    WithConf,
+    DynNode,
+    DynLayer,
     node,
     node_,
     nodeHold,
@@ -20,7 +25,9 @@ module Reflex.Cocos2d.Node (
     layerHold,
     layerView,
     layerColor,
-    layerColor_
+    layerColor_,
+    layerColorHold,
+    layerColorView,
 ) where
 
 import Data.Dependent.Sum (DSum (..))
@@ -95,51 +102,90 @@ instance Reflex t => Default (NodeConfig t) where
                      }
 
 instance Reflex t => Default (LayerConfig t) where
-    def = LayerConfig $ def & anchor .~ constDyn (pure 0.5) 
+    def = LayerConfig $ def & anchor .~ constDyn (pure 0.5)
                             & size .~ constDyn (V2 winWidth winHeight)
 
 instance Reflex t => Default (LayerColorConfig t) where
     def = LayerColorConfig $ def & color .~ constDyn black
 
-node :: NodeGraph t m => NodeConfig t -> m a -> m a
-node conf child = liftIO createNode >>= integrate conf child
+-- | Used to interact with ghcjs-cocos2d as well as keeping
+-- a reference of the relevant config
+data WithConf c n = WithConf c n
 
-node_ :: NodeGraph t m => NodeConfig t -> m ()
-node_ conf = node conf (return ())
+-- | Convenience constraints
+type DynNode n t = (IsNode n, HasNodeConfig n t)
+type DynLayer l t = (IsLayer l, HasLayerConfig l t)
 
-nodeHold :: NodeGraph t m => NodeConfig t -> m a -> Event t (m a) -> m (Dynamic t a)
-nodeHold conf child0 newChild = liftIO createNode >>= integrateHold conf child0 newChild
+instance IsNode n => IsNode (WithConf c n) where
+    toNode (WithConf _ n) = toNode n
 
-nodeView :: NodeGraph t m => NodeConfig t -> Dynamic t (m a) -> m (Event t a) 
-nodeView conf child = liftIO createNode >>= integrateView conf child
+instance IsLayer l => IsLayer (WithConf c l) where
+    toLayer (WithConf _ l) = toLayer l
 
-layer :: NodeGraph t m => LayerConfig t -> m a -> m a
-layer conf child = liftIO createLayer >>= integrate conf child
+instance HasNodeConfig c t => HasNodeConfig (WithConf c e) t where
+    nodeConfig f (WithConf c n) = (\nc -> WithConf (c & nodeConfig.~nc) n) <$> f (c^.nodeConfig)
 
-layer_ :: NodeGraph t m => LayerConfig t -> m ()
-layer_ conf = layer conf (return ())
+instance HasLayerConfig c t => HasLayerConfig (WithConf c e) t where
+    layerConfig f (WithConf c n) = (\lc -> WithConf (c & layerConfig.~lc) n) <$> f (c^.layerConfig)
 
-layerHold :: NodeGraph t m => LayerConfig t -> m a -> Event t (m a) -> m (Dynamic t a)
-layerHold conf child0 newChild = liftIO createLayer >>= integrateHold conf child0 newChild
+instance HasLayerColorConfig c t => HasLayerColorConfig (WithConf c e) t where
+    layerColorConfig f (WithConf c n) = (\lc -> WithConf (c & layerColorConfig.~lc) n) <$> f (c^.layerColorConfig)
 
-layerView :: NodeGraph t m => LayerConfig t -> Dynamic t (m a) -> m (Event t a) 
-layerView conf child = liftIO createLayer >>= integrateView conf child
+node :: NodeGraph t m => NodeConfig t -> m a -> m (WithConf (NodeConfig t) Node, a)
+node conf child = createNode >>=
+    liftM2 (,) <$> return . WithConf conf <*> integrate conf child
 
-layerColor :: NodeGraph t m => LayerColorConfig t -> m a -> m a
-layerColor conf child = liftIO createLayerColor >>= integrate conf child
-layerColor_ :: NodeGraph t m => LayerColorConfig t -> m ()
-layerColor_ conf = layerColor conf (return ())
+node_ :: NodeGraph t m => NodeConfig t -> m (WithConf (NodeConfig t) Node)
+node_ conf = fst <$> node conf (return ())
+
+nodeHold :: NodeGraph t m => NodeConfig t -> m a -> Event t (m a) -> m (WithConf (NodeConfig t) Node, Dynamic t a)
+nodeHold conf child0 newChild = createNode >>=
+    liftM2 (,) <$> return . WithConf conf <*> integrateHold conf child0 newChild
+
+nodeView :: NodeGraph t m => NodeConfig t -> Dynamic t (m a) -> m (WithConf (NodeConfig t) Node, Event t a)
+nodeView conf child = createNode >>=
+    liftM2 (,) <$> return . WithConf conf <*> integrateView conf child
+
+layer :: NodeGraph t m => LayerConfig t -> m a -> m (WithConf (LayerConfig t) Layer, a)
+layer conf child = createLayer >>=
+    liftM2 (,) <$> return . WithConf conf <*> integrate conf child
+
+layer_ :: NodeGraph t m => LayerConfig t -> m (WithConf (LayerConfig t) Layer)
+layer_ conf = fst <$> layer conf (return ())
+
+layerHold :: NodeGraph t m => LayerConfig t -> m a -> Event t (m a) -> m (WithConf (LayerConfig t) Layer, Dynamic t a)
+layerHold conf child0 newChild = createLayer >>=
+    liftM2 (,) <$> return . WithConf conf <*> integrateHold conf child0 newChild
+
+layerView :: NodeGraph t m => LayerConfig t -> Dynamic t (m a) -> m (WithConf (LayerConfig t) Layer, Event t a)
+layerView conf child = createLayer >>=
+    liftM2 (,) <$> return . WithConf conf <*> integrateView conf child
+
+layerColor :: NodeGraph t m => LayerColorConfig t -> m a -> m (WithConf (LayerColorConfig t) LayerColor, a)
+layerColor conf child = createLayerColor >>=
+    liftM2 (,) <$> return . WithConf conf <*> integrate conf child
+
+layerColor_ :: NodeGraph t m => LayerColorConfig t -> m (WithConf (LayerColorConfig t) LayerColor)
+layerColor_ conf = fst <$> layerColor conf (return ())
+
+layerColorHold :: NodeGraph t m => LayerColorConfig t -> m a -> Event t (m a) -> m (WithConf (LayerColorConfig t) LayerColor, Dynamic t a)
+layerColorHold conf child0 newChild = createLayerColor >>=
+    liftM2 (,) <$> return . WithConf conf <*> integrateHold conf child0 newChild
+
+layerColorView :: NodeGraph t m => LayerColorConfig t -> Dynamic t (m a) -> m (WithConf (LayerColorConfig t) LayerColor, Event t a)
+layerColorView conf child = createLayerColor >>=
+    liftM2 (,) <$> return . WithConf conf <*> integrateView conf child
 
 applyNodeConfig :: (IsNode n, NodeGraph t m, HasNodeConfig c t) => n -> c -> m ()
 applyNodeConfig n c | (NodeConfig pos size anchor skew zIndex rotation scale
                       visible color opacity cascadeColor cascadeOpacity) <- c^.nodeConfig = do
     -- schedule post all values that requires lazy input
     let app setter dyn = do
-            schedulePostBuild $ liftIO . setter n =<< sample (current dyn)
-            performEvent_ $ liftIO . setter n <$> updated dyn
-        vset xset yset n (V2 x y) = xset n x >> yset n y 
+            schedulePostBuild $ setter n =<< sample (current dyn)
+            forH_ (updated dyn) $ setter n
+        vset xset yset n (V2 x y) = xset n x >> yset n y
     app (vset setX setY) pos
-    app (vset setWidth setHeight) size 
+    app (vset setWidth setHeight) size
     app (vset setAnchorX setAnchorY) anchor
     app (vset setSkewX setSkewY) skew
     app setZIndex zIndex
@@ -148,9 +194,8 @@ applyNodeConfig n c | (NodeConfig pos size anchor skew zIndex rotation scale
     app setVisible visible
     app setColor color
     app setOpacity opacity
-    liftIO $ do
-        setCascadeColor n cascadeColor
-        setCascadeOpacity n cascadeOpacity
+    setCascadeColor n cascadeColor
+    setCascadeOpacity n cascadeOpacity
 
 integrate :: (NodeGraph t m, IsNode n, HasNodeConfig c t) => c -> m a -> n -> m a
 integrate conf child n = integrate' conf n >> subGraph (toNode n) child
@@ -173,8 +218,8 @@ integrateView conf child n = do
 integrate' :: (NodeGraph t m, IsNode n, HasNodeConfig c t) => c -> n -> m ()
 integrate' conf n = do
     applyNodeConfig n conf
-    p <- askParent 
-    liftIO $ addChild p n
+    p <- askParent
+    addChild p n
 
 graphHold :: NodeGraph t m => Node -> m a -> Event t (m b) -> m (a, Event t b)
 graphHold p child0 newChild = do
@@ -184,8 +229,8 @@ graphHold p child0 newChild = do
     performEvent_ $ switch voidAction
     runGraph <- askRunGraph
     runWithActions <- askRunWithActions
-    performEvent_ $ ffor newChild $ \g -> do
-        liftIO $ removeAllChildren p
+    forH_ newChild $ \g -> do
+        removeAllChildren p
         (r, postBuild, vas) <- runGraph p g
         mt <- readRef newChildBuiltTriggerRef
         liftIO $ forM_ mt $ \t -> runWithActions [t :=> (r, vas)]

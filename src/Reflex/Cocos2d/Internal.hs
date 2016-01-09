@@ -90,7 +90,7 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
     askRunWithActions = Graph $ view graphRunWithActions 
 
 -- construct a new scene with a NodeGraph
-mainScene :: Graph Spider () -> IO ()
+mainScene :: Graph Spider a -> IO ()
 mainScene (Graph g) = do
     scene <- createScene
     runSpiderHost $ runHostFrame $ mdo
@@ -100,4 +100,4 @@ mainScene (Graph g) = do
         GraphState postBuild vas <- execStateT (runReaderT g (GraphEnv (toNode scene) runWithActions)) (GraphState (return ()) [])
         postBuild
         voidActionHandle <- subscribeEvent $ mergeWith (>>) vas
-        liftIO $ runScene scene
+        runScene scene
