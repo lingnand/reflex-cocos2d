@@ -1,9 +1,10 @@
-module Reflex.Cocos2d (
-    module Reflex.Cocos2d.Class,
-    module Reflex.Cocos2d.Node,
-    module Reflex.Cocos2d.Internal,
-    module Reflex.Cocos2d.Event
-) where
+module Reflex.Cocos2d
+    (
+      module Reflex.Cocos2d.Class
+    , module Reflex.Cocos2d.Node
+    , module Reflex.Cocos2d.Internal
+    , module Reflex.Cocos2d.Event
+    ) where
 
 import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Node

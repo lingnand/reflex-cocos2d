@@ -27,9 +27,9 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
       , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
       , MonadAsyncException m, MonadAsyncException (HostFrame t)) => NodeGraph t m where
     askParent :: m Node
-    -- | run a graph under the same parent in the HostFrame
+    -- | Run a graph under the same parent in the HostFrame
     askRunGraph :: m (Node -> m a -> HostFrame t (a, HostFrame t (), Event t (HostFrame t ())))
-    -- | run a graph under a given node, return the result and the children
+    -- | Run a graph under a given node, return the result and the children
     subGraph :: Node -> m a -> m a
     subGraphWithVoidActions :: Node -> m a -> m (a, Event t (HostFrame t ()))
     -- | Schedule an action to occur after the current cohort has been built; this is necessary because Behaviors built in the current cohort may not be read until after it is complete
@@ -40,7 +40,8 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
         runWithActions <- askRunWithActions
         (eResult, trigger) <- newEventWithTriggerRef
         performEvent_ . ffor e $ \o -> o >>= \case
-                Just result -> liftIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> result])
+                Just result -> liftIO $ readRef trigger
+                                        >>= mapM_ (\t -> runWithActions [t :=> result])
                 _ -> return ()
         return eResult
     performEvent :: NodeGraph t m => Event t (HostFrame t a) -> m (Event t a)

@@ -7,9 +7,10 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecursiveDo #-}
-module Reflex.Cocos2d.Internal (
-    mainScene
-) where
+module Reflex.Cocos2d.Internal
+    (
+      mainScene
+    ) where
 
 import Data.Dependent.Sum (DSum (..))
 import Control.Monad.Trans.Class

@@ -6,29 +6,30 @@
 {-# LANGUAGE JavaScriptFFI #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Reflex.Cocos2d.Node (
-    NodeConfig(NodeConfig),
-    LayerConfig(LayerConfig),
-    LayerColorConfig(LayerColorConfig),
-    HasNodeConfig(..),
-    HasLayerConfig(..),
-    HasLayerColorConfig(..),
-    WithConf,
-    DynNode,
-    DynLayer,
-    node,
-    node_,
-    nodeHold,
-    nodeView,
-    layer,
-    layer_,
-    layerHold,
-    layerView,
-    layerColor,
-    layerColor_,
-    layerColorHold,
-    layerColorView,
-) where
+module Reflex.Cocos2d.Node
+    (
+      NodeConfig(NodeConfig)
+    , LayerConfig(LayerConfig)
+    , LayerColorConfig(LayerColorConfig)
+    , HasNodeConfig(..)
+    , HasLayerConfig(..)
+    , HasLayerColorConfig(..)
+    , WithConf
+    , DynNode
+    , DynLayer
+    , node
+    , node_
+    , nodeHold
+    , nodeView
+    , layer
+    , layer_
+    , layerHold
+    , layerView
+    , layerColor
+    , layerColor_
+    , layerColorHold
+    , layerColorView
+    ) where
 
 import Data.Dependent.Sum (DSum (..))
 import Data.Colour
@@ -45,20 +46,20 @@ import JavaScript.Cocos2d.Node
 import JavaScript.Cocos2d.Layer
 import Reflex.Cocos2d.Class
 
-data NodeConfig t
-   = NodeConfig { _position :: Dynamic t (V2 Double)
-                , _size :: Dynamic t (V2 Double) -- | size as a vector (width: x, height: y)
-                , _anchor :: Dynamic t (V2 Double)
-                , _skew :: Dynamic t (V2 Double)
-                , _zIndex :: Dynamic t Int
-                , _rotation :: Dynamic t (V2 Double)
-                , _scale :: Dynamic t (V2 Double)
-                , _visible :: Dynamic t Bool
-                , _color :: Dynamic t (Colour Double)
-                , _opacity :: Dynamic t Double -- | 0.0 - 1.0
-                , _cascadeColor :: Bool
-                , _cascadeOpacity :: Bool
-                }
+data NodeConfig t = NodeConfig
+    { _position :: Dynamic t (V2 Double)
+    , _size :: Dynamic t (V2 Double) -- ^ Size as a vector (width: x, height: y)
+    , _anchor :: Dynamic t (V2 Double)
+    , _skew :: Dynamic t (V2 Double)
+    , _zIndex :: Dynamic t Int
+    , _rotation :: Dynamic t (V2 Double)
+    , _scale :: Dynamic t (V2 Double)
+    , _visible :: Dynamic t Bool
+    , _color :: Dynamic t (Colour Double)
+    , _opacity :: Dynamic t Double -- ^ 0.0 - 1.0
+    , _cascadeColor :: Bool
+    , _cascadeOpacity :: Bool
+    }
 makeClassy ''NodeConfig
 
 newtype LayerConfig t = LayerConfig (NodeConfig t)
@@ -237,6 +238,6 @@ graphHold p child0 newChild = do
         postBuild
     return (result0, fmap fst newChildBuilt)
 
--- | XXX: HACK - obtain the window size as a constant (there should be a better way?)
+-- XXX: HACK - obtain the window size as a constant (there should be a better way?)
 foreign import javascript unsafe "cc.winSize.width" winWidth :: Double
 foreign import javascript unsafe "cc.winSize.height" winHeight :: Double
