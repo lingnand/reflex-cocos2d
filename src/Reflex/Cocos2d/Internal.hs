@@ -75,18 +75,25 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
          , MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
          , ReflexHost t ) => NodeGraph t (Graph t) where
     askParent = Graph $ view graphParent
-    askRunGraph = do
-        runWithActions <- askRunWithActions
-        return $ \p (Graph g) -> do
-            (result, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p runWithActions)) (GraphState (return ()) [])
-            return (result, postBuild, mergeWith (>>) vas)
     schedulePostBuild a = Graph $ graphPostBuild %= (a>>)
-    subGraph n (Graph c) = Graph $ local (graphParent .~ n) c
-    subGraphWithVoidActions n child = do 
+    subGraph n (Graph c) = Graph $ local (graphParent .~ toNode n) c
+    holdGraph p child0 newchild = do
+        let p' = toNode p
         vas <- Graph $ use graphVoidActions <* (graphVoidActions .= [])
-        result <- subGraph n child
+        result0 <- subGraph p' child
         vas' <- Graph $ use graphVoidActions <* (graphVoidActions .= vas)
-        return (result, mergeWith (>>) vas')
+        let voidAction0 = mergeWith (>>) vas'
+        (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
+        voidAction <- hold voidAction0 $ fmap snd newChildBuilt
+        performEvent_ $ switch voidAction
+        runWithActions <- askRunWithActions
+        forH_ newChild $ \(Graph g) -> do
+            removeAllChildren p'
+            (r, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p' runWithActions)) (GraphState (return ()) [])
+            mt <- readRef newChildBuiltTriggerRef
+            liftIO $ forM_ mt $ \t -> runWithActions [t :=> (r, mergeWith (>>) vas)]
+            postBuild
+        return (result0, fmap fst newChildBuilt)
     performEvent_ a = Graph $ graphVoidActions %= (a:)
     askRunWithActions = Graph $ view graphRunWithActions 
 

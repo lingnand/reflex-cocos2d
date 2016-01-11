@@ -1,4 +1,3 @@
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -138,37 +137,6 @@ instance Reflex t => Default (LayerConfig t) where
 instance Reflex t => Default (LayerColorConfig t) where
     def = LayerColorConfig def $ ColorConfig { _color = constDyn black }
 
--- * Compositions
-
--- Embed
-infixr 1 |<
-(|<) :: (NodeGraph t m, IsNode n) => m n -> m a -> m (n, a)
-node |< child = do
-    n <- node
-    a <- subGraph (toNode n) child
-    return (n, a)
-
--- Hold
-infixr 1 |-
-(|-) :: (NodeGraph t m, IsNode n) => m n -> Event t (m a) -> m a -> m (n, Dynamic t a)
-(|-) node newChild child0 = do
-    n <- node
-    (result0, newResult) <- graphHold (toNode n) child0 newChild
-    dyn <- holdDyn result0 newResult
-    return (n, dyn)
-
--- View
-infixr 1 |=
-(|=) :: (NodeGraph t m, IsNode n) => m n -> Dynamic t (m a) -> m (n, Event t a)
-node |= child = do
-    n <- node
-    (e, trigger) <- newEventWithTriggerRef
-    runWithActions <- askRunWithActions
-    schedulePostBuild . liftIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> ()])
-    let newChild = leftmost [updated child, tag (current child) e]
-    (_, evt) <- graphHold (toNode n) (return ()) newChild
-    return (n, evt)
-
 -- * Node
 
 data DynNode t = DynNode (NodeConfig t) Node
@@ -268,22 +236,6 @@ appSizeConfig c n = appDyn (setV setWidth setHeight n) (c^.size)
 
 appNodeConfig :: (IsNode n, NodeGraph t m, HasNodeConfig c t) => c -> n -> m ()
 appNodeConfig c n = appBaseConfig c n >> appSizeConfig c n
-
-graphHold :: NodeGraph t m => Node -> m a -> Event t (m b) -> m (a, Event t b)
-graphHold p child0 newChild = do
-    (result0, voidAction0) <- subGraphWithVoidActions p child0
-    (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
-    voidAction <- hold voidAction0 $ fmap snd newChildBuilt
-    performEvent_ $ switch voidAction
-    runGraph <- askRunGraph
-    runWithActions <- askRunWithActions
-    forH_ newChild $ \g -> do
-        removeAllChildren p
-        (r, postBuild, vas) <- runGraph p g
-        mt <- readRef newChildBuiltTriggerRef
-        liftIO $ forM_ mt $ \t -> runWithActions [t :=> (r, vas)]
-        postBuild
-    return (result0, fmap fst newChildBuilt)
 
 -- XXX: HACK - obtain the window size as a constant (there should be a better way?)
 foreign import javascript unsafe "cc.winSize.width" winWidth :: Double

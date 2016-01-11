@@ -2,7 +2,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 module Reflex.Cocos2d.Class where
@@ -27,12 +26,14 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
       , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
       , MonadAsyncException m, MonadAsyncException (HostFrame t)) => NodeGraph t m where
     askParent :: m Node
-    -- | Run a graph under the same parent in the HostFrame
-    askRunGraph :: m (Node -> m a -> HostFrame t (a, HostFrame t (), Event t (HostFrame t ())))
-    -- | Run a graph under a given node, return the result and the children
-    subGraph :: Node -> m a -> m a
-    subGraphWithVoidActions :: Node -> m a -> m (a, Event t (HostFrame t ()))
-    -- | Schedule an action to occur after the current cohort has been built; this is necessary because Behaviors built in the current cohort may not be read until after it is complete
+    -- | Run a graph under a given node
+    subGraph :: IsNode n => n -> m a -> m a
+    -- | Run a graph with the initial content and the updated content
+    -- whenever the event updates
+    holdGraph :: IsNode n => n -> m a -> Event t (m b) -> m (a, Event t b)
+    -- | Schedule an action to occur after the current cohort has been
+    -- built; this is necessary because Behaviors built in the current
+    -- cohort may not be read until after it is complete
     schedulePostBuild :: HostFrame t () -> m ()
     performEvent_ :: Event t (HostFrame t ()) -> m ()
     performEventMaybe :: NodeGraph t m => Event t (HostFrame t (Maybe a)) -> m (Event t a)
@@ -64,3 +65,35 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
     -- the action handlers
     askRunWithActions :: m (ActionTrigger t)
 
+-- * Compositions
+-- | Embed
+-- e.g., @nodeBuilder |< child@
+infixr 1 |<
+(|<) :: (NodeGraph t m, IsNode n) => m n -> m a -> m (n, a)
+node |< child = do
+    n <- node
+    a <- subGraph n child
+    return (n, a)
+
+-- | Hold
+-- e.g., @newChild & nodeBuilder |- child0@
+infixr 1 |-
+(|-) :: (NodeGraph t m, IsNode n) => m n -> m a -> Event t (m a) -> m (n, Dynamic t a)
+(|-) node child0 newChild = do
+    n <- node
+    (result0, newResult) <- holdGraph n child0 newChild
+    dyn <- holdDyn result0 newResult
+    return (n, dyn)
+
+-- | View
+-- e.g., @nodeBuilder |= child@
+infixr 1 |=
+(|=) :: (NodeGraph t m, IsNode n) => m n -> Dynamic t (m a) -> m (n, Event t a)
+node |= child = do
+    n <- node
+    (e, trigger) <- newEventWithTriggerRef
+    runWithActions <- askRunWithActions
+    schedulePostBuild . liftIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> ()])
+    let newChild = leftmost [updated child, tag (current child) e]
+    (_, evt) <- holdGraph n (return ()) newChild
+    return (n, evt)
