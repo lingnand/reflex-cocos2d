@@ -16,9 +16,6 @@ module Reflex.Cocos2d.Node
     , HasNodeConfig(..)
     , HasLayerConfig(..)
     , HasLayerColorConfig(..)
-    , (|<)
-    , (|-)
-    , (|=)
     , DynNode
     , DynLayer
     , DynLayerColor
