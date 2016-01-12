@@ -68,7 +68,7 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
 -- * Compositions
 -- | Embed
 -- e.g., @nodeBuilder |< child@
-infixr 1 |<
+infixr 2 |<
 (|<) :: (NodeGraph t m, IsNode n) => m n -> m a -> m (n, a)
 node |< child = do
     n <- node
@@ -77,7 +77,7 @@ node |< child = do
 
 -- | Hold
 -- e.g., @newChild & nodeBuilder |- child0@
-infixr 1 |-
+infixr 2 |-
 (|-) :: (NodeGraph t m, IsNode n) => m n -> m a -> Event t (m a) -> m (n, Dynamic t a)
 (|-) node child0 newChild = do
     n <- node
@@ -87,7 +87,7 @@ infixr 1 |-
 
 -- | View
 -- e.g., @nodeBuilder |= child@
-infixr 1 |=
+infixr 2 |=
 (|=) :: (NodeGraph t m, IsNode n) => m n -> Dynamic t (m a) -> m (n, Event t a)
 node |= child = do
     n <- node

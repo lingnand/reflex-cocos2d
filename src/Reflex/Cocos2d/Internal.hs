@@ -13,6 +13,7 @@ module Reflex.Cocos2d.Internal
     ) where
 
 import Data.Dependent.Sum (DSum (..))
+import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State.Strict
@@ -77,10 +78,10 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
     askParent = Graph $ view graphParent
     schedulePostBuild a = Graph $ graphPostBuild %= (a>>)
     subGraph n (Graph c) = Graph $ local (graphParent .~ toNode n) c
-    holdGraph p child0 newchild = do
+    holdGraph p child0 newChild = do
         let p' = toNode p
         vas <- Graph $ use graphVoidActions <* (graphVoidActions .= [])
-        result0 <- subGraph p' child
+        result0 <- subGraph p' child0
         vas' <- Graph $ use graphVoidActions <* (graphVoidActions .= vas)
         let voidAction0 = mergeWith (>>) vas'
         (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
@@ -95,7 +96,7 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
             postBuild
         return (result0, fmap fst newChildBuilt)
     performEvent_ a = Graph $ graphVoidActions %= (a:)
-    askRunWithActions = Graph $ view graphRunWithActions 
+    askRunWithActions = Graph $ view graphRunWithActions
 
 -- construct a new scene with a NodeGraph
 mainScene :: Graph Spider a -> IO ()
