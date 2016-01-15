@@ -24,7 +24,6 @@ import Control.Monad.Exception
 import Control.Lens
 import Reflex
 import Reflex.Host.Class
-import Reflex.Spider
 import JavaScript.Cocos2d
 import JavaScript.Cocos2d.Node
 import JavaScript.Cocos2d.Scene
@@ -32,7 +31,7 @@ import Reflex.Cocos2d.Class
 
 -- mostly borrowed from Reflex.Dom.Internal
 data GraphEnv t = GraphEnv { _graphParent :: !Node
-                           , _graphRunWithActions :: !(ActionTrigger t)
+                           , _graphRunWithActions :: !([DSum (EventTrigger t)] -> IO ())
                            }
 
 makeLenses ''GraphEnv
@@ -43,7 +42,7 @@ data GraphState t = GraphState { _graphPostBuild :: !(HostFrame t ())
 
 makeLenses ''GraphState
 
-newtype Graph t a = Graph { unGraph :: ReaderT (GraphEnv t) (StateT (GraphState t) (HostFrame t)) a }
+newtype Graph t a = Graph (ReaderT (GraphEnv t) (StateT (GraphState t) (HostFrame t)) a)
 
 deriving instance Functor (HostFrame t) => Functor (Graph t)
 deriving instance (Monad (HostFrame t), Applicative (HostFrame t)) => Applicative (Graph t)

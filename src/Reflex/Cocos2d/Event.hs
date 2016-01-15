@@ -2,8 +2,9 @@
 {-# LANGUAGE GADTs #-}
 module Reflex.Cocos2d.Event
     (
+      FixEvent(..)
     -- * UI Events
-      UIEventType
+    , UIEventType
     -- ** Convenience Lens Getters
     , touchesBegan
     , touchesEnded
@@ -23,6 +24,17 @@ module Reflex.Cocos2d.Event
     , slowdown
     -- * Utility
     , takeWhileE
+    -- * re-export the lower level
+    , Touch(..)
+    , location
+    , previousLocation
+    , delta
+    , startLocation
+    , Key(..)
+    , MouseEvent(..)
+    , Acceleration(..)
+    , vec
+    , time
     ) where
 
 import Data.Time.Clock
@@ -31,14 +43,15 @@ import Data.Dependent.Sum (DSum (..))
 import Data.GADT.Compare.TH
 import Control.Monad
 import Control.Monad.Fix
-import Control.Monad.IO.Class
 import Control.Lens
 import Reflex
 import Reflex.Host.Class
-import JavaScript.Cocos2d.EventListener
+import JavaScript.Cocos2d.Event
 import JavaScript.Cocos2d.Schedule
-import JavaScript.Cocos2d.Types
 import Reflex.Cocos2d.Class
+
+-- | Recursive data type over Event
+newtype FixEvent t f = FixEvent { unfixEvent :: f (Event t (FixEvent t f)) }
 
 data UIEventType a where
     TouchesBegan :: UIEventType [Touch]
@@ -49,8 +62,8 @@ data UIEventType a where
     MouseUp :: UIEventType MouseEvent
     MouseMove :: UIEventType MouseEvent
     MouseScroll :: UIEventType MouseEvent
-    KeyPressed :: UIEventType Key -- | similar to KeyDown
-    KeyReleased :: UIEventType Key -- | similar to KeyUp
+    KeyPressed :: UIEventType Key
+    KeyReleased :: UIEventType Key
     AccelerationChanged :: UIEventType Acceleration
 
 touchesBegan, touchesEnded, touchesMoved, touchesCancelled
@@ -103,11 +116,14 @@ uiEvents = do
     return $! e
 
 -- | Convenience function to obtain currently held keys
--- TODO: use foldDynMaybe to reduce non-changing events?
 dynKeysDown :: (Reflex t, MonadHold t m, MonadFix m) => Event t Key -> Event t Key -> m (Dynamic t (S.Set Key))
-dynKeysDown keyPressed keyReleased = foldDyn ($) S.empty $ leftmost [ S.insert <$> keyPressed
-                                                                    , S.delete <$> keyReleased
-                                                                    ]
+dynKeysDown keyPressed keyReleased = foldDynMaybe ($) S.empty $ leftmost [ ffor keyPressed $ \k m -> do
+                                                                              -- since KeyPressed event can keep firing
+                                                                              -- we block non-changing events
+                                                                              guard . not $ k `S.member` m
+                                                                              return $ S.insert k m
+                                                                         , ffor keyReleased $ fmap Just . S.delete
+                                                                         ]
 
 -- | Get the tick per frame
 ticks :: NodeGraph t m => m (Event t NominalDiffTime)

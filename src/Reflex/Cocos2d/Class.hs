@@ -9,17 +9,12 @@ module Reflex.Cocos2d.Class where
 import Data.Dependent.Sum (DSum (..))
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Reader
-import Control.Monad.Trans.State
 import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Exception
-import Control.Lens
 import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
-
-type ActionTrigger t = [DSum (EventTrigger t)] -> IO ()
 
 class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
       , MonadRef m, Ref m ~ Ref IO, MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
@@ -63,23 +58,23 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
     -- performEventAsync (we can add it if we need to)
     -- | Return the function that allows to propagate events and execute
     -- the action handlers
-    askRunWithActions :: m (ActionTrigger t)
+    askRunWithActions :: m ([DSum (EventTrigger t)] -> IO ())
 
 -- * Compositions
 -- | Embed
 -- e.g., @nodeBuilder |< child@
-infixr 2 |<
-(|<) :: (NodeGraph t m, IsNode n) => m n -> m a -> m (n, a)
-node |< child = do
+infixr 2 -<
+(-<) :: (NodeGraph t m, IsNode n) => m n -> m a -> m (n, a)
+node -< child = do
     n <- node
     a <- subGraph n child
     return (n, a)
 
 -- | Hold
 -- e.g., @newChild & nodeBuilder |- child0@
-infixr 2 |-
-(|-) :: (NodeGraph t m, IsNode n) => m n -> m a -> Event t (m a) -> m (n, Dynamic t a)
-(|-) node child0 newChild = do
+infixr 2 -|
+(-|) :: (NodeGraph t m, IsNode n) => m n -> m a -> Event t (m a) -> m (n, Dynamic t a)
+(-|) node child0 newChild = do
     n <- node
     (result0, newResult) <- holdGraph n child0 newChild
     dyn <- holdDyn result0 newResult
@@ -87,9 +82,9 @@ infixr 2 |-
 
 -- | View
 -- e.g., @nodeBuilder |= child@
-infixr 2 |=
-(|=) :: (NodeGraph t m, IsNode n) => m n -> Dynamic t (m a) -> m (n, Event t a)
-node |= child = do
+infixr 2 =|
+(=|) :: (NodeGraph t m, IsNode n) => m n -> Dynamic t (m a) -> m (n, Event t a)
+node =| child = do
     n <- node
     (e, trigger) <- newEventWithTriggerRef
     runWithActions <- askRunWithActions
