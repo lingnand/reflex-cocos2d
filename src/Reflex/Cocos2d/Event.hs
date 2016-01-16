@@ -22,6 +22,8 @@ module Reflex.Cocos2d.Event
     -- * Time
     , ticks
     , slowdown
+    -- * Async
+    , load
     -- * Utility
     , takeWhileE
     -- * re-export the lower level
@@ -48,6 +50,7 @@ import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Event
 import JavaScript.Cocos2d.Schedule
+import qualified JavaScript.Cocos2d.Async as A
 import Reflex.Cocos2d.Class
 
 -- | Recursive data type over Event
@@ -148,3 +151,21 @@ takeWhileE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a 
 takeWhileE f e = do
     let e' = fforMaybe e $ \a -> guard (f a) >> return never
     return . switch =<< hold e =<< headE e'
+
+-- | Load a list of resources in an async manner
+-- returns (Event t (loaded, total), finished)
+-- NOTE: we reverse the @loaded@ and @total@ because this makes more sense
+-- also, increment the finished by 1 because we are not procedurally
+-- looking at how many loaded /last time/ (instead how many /already/
+-- loaded)
+load :: (NodeGraph t m, Num a) => [String] -> m (Event t (a, a), Event t ())
+load resources = do
+    o <- A.createLoadOption
+    runWithActions <- askRunWithActions
+    trigger <- newEventWithTrigger $ \et ->
+        A.setLoadTrigger o $ \total loaded ->
+            runWithActions [et :=> (fromIntegral (loaded+1), fromIntegral total)]
+    finished <- newEventWithTrigger $ \et ->
+        A.setLoadFinish o $ runWithActions [et :=> ()]
+    schedulePostBuild $ A.load resources o
+    return (trigger, finished)
