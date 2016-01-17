@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -19,7 +21,9 @@ import JavaScript.Cocos2d.Node
 class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
       , MonadRef m, Ref m ~ Ref IO, MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
       , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
-      , MonadAsyncException m, MonadAsyncException (HostFrame t)) => NodeGraph t m where
+      , MonadAsyncException m, MonadAsyncException (HostFrame t)
+      , HasEventLoop t (EventLoop m) m) => NodeGraph t m | m -> t where
+    type EventLoop m :: * -> *
     askParent :: m Node
     -- | Run a graph under a given node
     subGraph :: IsNode n => n -> m a -> m a
@@ -33,11 +37,11 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
     performEvent_ :: Event t (HostFrame t ()) -> m ()
     performEventMaybe :: NodeGraph t m => Event t (HostFrame t (Maybe a)) -> m (Event t a)
     performEventMaybe e = do
-        runWithActions <- askRunWithActions
+        postEl <- askPostEventLoop
         (eResult, trigger) <- newEventWithTriggerRef
         performEvent_ . ffor e $ \o -> o >>= \case
-                Just result -> liftIO $ readRef trigger
-                                        >>= mapM_ (\t -> runWithActions [t :=> result])
+                Just result -> liftIO . postEl $ readRef trigger
+                                                 >>= mapM_ (\t -> runWithActions [t :=> result])
                 _ -> return ()
         return eResult
     performEvent :: NodeGraph t m => Event t (HostFrame t a) -> m (Event t a)
@@ -56,9 +60,12 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
     forH_ :: Event t a -> (a -> HostFrame t b) -> m ()
     forH_ = flip mapH_
     -- performEventAsync (we can add it if we need to)
-    -- | Return the function that allows to propagate events and execute
-    -- the action handlers
-    askRunWithActions :: m ([DSum (EventTrigger t)] -> IO ())
+
+class (MonadRef h, Ref h ~ Ref m, MonadRef m) => HasEventLoop t h m | m -> h t, h -> m t where
+    -- | Run something on the event loop e.g., trigger some events
+    -- The event loop should be run in a dedicated thread
+    askPostEventLoop :: m (h () -> IO ())
+    runWithActions :: [DSum (EventTrigger t)] -> h ()
 
 -- * Compositions
 -- | Embed
@@ -87,8 +94,8 @@ infixr 2 =|
 node =| child = do
     n <- node
     (e, trigger) <- newEventWithTriggerRef
-    runWithActions <- askRunWithActions
-    schedulePostBuild . liftIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> ()])
+    postEl <- askPostEventLoop
+    schedulePostBuild . liftIO . postEl $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> ()])
     let newChild = leftmost [updated child, tag (current child) e]
     (_, evt) <- holdGraph n (return ()) newChild
     return (n, evt)

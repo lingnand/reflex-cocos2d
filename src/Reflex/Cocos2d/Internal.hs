@@ -21,6 +21,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Exception
+import Control.Concurrent
 import Control.Lens
 import Reflex
 import Reflex.Host.Class
@@ -29,9 +30,11 @@ import JavaScript.Cocos2d.Node
 import JavaScript.Cocos2d.Scene
 import Reflex.Cocos2d.Class
 
+newtype ELoop t a = ELoop (ReaderT ([DSum (EventTrigger t)] -> IO ()) IO a) deriving (Monad, Applicative, Functor, MonadIO)
+
 -- mostly borrowed from Reflex.Dom.Internal
 data GraphEnv t = GraphEnv { _graphParent :: !Node
-                           , _graphRunWithActions :: !([DSum (EventTrigger t)] -> IO ())
+                           , _graphPostEventLoop :: !(ELoop t () -> IO ())
                            }
 
 makeLenses ''GraphEnv
@@ -74,6 +77,7 @@ instance MonadRef (HostFrame t) => MonadRef (Graph t) where
 instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (HostFrame t)
          , MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
          , ReflexHost t ) => NodeGraph t (Graph t) where
+    type EventLoop (Graph t) = ELoop t
     askParent = Graph $ view graphParent
     schedulePostBuild a = Graph $ graphPostBuild %= (a>>)
     subGraph n (Graph c) = Graph $ local (graphParent .~ toNode n) c
@@ -86,26 +90,42 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
         (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
         voidAction <- hold voidAction0 $ fmap snd newChildBuilt
         performEvent_ $ switch voidAction
-        runWithActions <- askRunWithActions
+        postEl <- askPostEventLoop
         forH_ newChild $ \(Graph g) -> do
             removeAllChildren p'
-            (r, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p' runWithActions)) (GraphState (return ()) [])
-            mt <- readRef newChildBuiltTriggerRef
-            liftIO $ forM_ mt $ \t -> runWithActions [t :=> (r, mergeWith (>>) vas)]
+            (r, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p' postEl)) (GraphState (return ()) [])
+            liftIO . postEl $ mapM_ (\t -> runWithActions [t :=> (r, mergeWith (>>) vas)])
+                              =<< readRef newChildBuiltTriggerRef
             postBuild
         return (result0, fmap fst newChildBuilt)
     performEvent_ a = Graph $ graphVoidActions %= (a:)
-    askRunWithActions = Graph $ view graphRunWithActions
+
+instance MonadRef (ELoop t) where
+    type Ref (ELoop t) = Ref IO
+    newRef = ELoop . lift . newRef
+    readRef = ELoop . lift . readRef
+    writeRef r = ELoop . lift . writeRef r
+
+instance (MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO) => HasEventLoop t (ELoop t) (Graph t) where
+    askPostEventLoop = Graph $ view graphPostEventLoop
+    runWithActions dm = ELoop $ do
+      r <- ask
+      liftIO $ r dm
 
 -- construct a new scene with a NodeGraph
 mainScene :: Graph Spider a -> IO ()
 mainScene (Graph g) = do
     scene <- createScene
+    frames <- newChan
     runSpiderHost $ runHostFrame $ mdo
-        let runWithActions dm = runSpiderHost $ do
+        let postEventLoop = writeChan frames
+            runWithActions dm = runSpiderHost $ do
                 va <- fireEventsAndRead dm $ sequence =<< readEvent voidActionHandle
                 runHostFrame $ sequence_ va
-        GraphState postBuild vas <- execStateT (runReaderT g (GraphEnv (toNode scene) runWithActions)) (GraphState (return ()) [])
+            ELoop el = forever . join $ liftIO $ readChan frames
+        GraphState postBuild vas <- execStateT (runReaderT g (GraphEnv (toNode scene) postEventLoop)) (GraphState (return ()) [])
         postBuild
         voidActionHandle <- subscribeEvent $ mergeWith (>>) vas
         runScene scene
+        -- the async thread that runs all event propagation
+        void . liftIO . forkIO $ runReaderT el runWithActions

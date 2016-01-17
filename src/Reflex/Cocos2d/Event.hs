@@ -96,7 +96,7 @@ deriveGCompare ''UIEventType
 
 uiEvents :: NodeGraph t m => m (EventSelector t UIEventType)
 uiEvents = do
-    runWithActions <- askRunWithActions
+    postEl <- askPostEventLoop
     e <- newFanEventWithTrigger $ \uiEventType et ->
       let wrap ml cb = do
               l <- ml
@@ -105,17 +105,17 @@ uiEvents = do
               addListener' l (-1)
               return $ removeListener l >> releaseCb
       in case uiEventType of
-          TouchesBegan -> wrap createTouchAllAtOnceEventListener $ setOnTouchesBegan ?? \t -> runWithActions [et :=> t]
-          TouchesEnded -> wrap createTouchAllAtOnceEventListener $ setOnTouchesEnded ?? \t -> runWithActions [et :=> t]
-          TouchesMoved -> wrap createTouchAllAtOnceEventListener $ setOnTouchesMoved ?? \t -> runWithActions [et :=> t]
-          TouchesCancelled -> wrap createTouchAllAtOnceEventListener $ setOnTouchesCancelled ?? \t -> runWithActions [et :=> t]
-          MouseDown -> wrap createMouseEventListener $ setOnMouseDown ?? \m -> runWithActions [et :=> m]
-          MouseUp -> wrap createMouseEventListener $ setOnMouseUp ?? \m -> runWithActions [et :=> m]
-          MouseMove -> wrap createMouseEventListener $ setOnMouseMove ?? \m -> runWithActions [et :=> m]
-          MouseScroll -> wrap createMouseEventListener $ setOnMouseScroll ?? \m -> runWithActions [et :=> m]
-          KeyPressed -> wrap createKeyboardEventListener $ setOnKeyPressed ?? \k -> runWithActions [et :=> k]
-          KeyReleased -> wrap createKeyboardEventListener $ setOnKeyReleased ?? \k -> runWithActions [et :=> k]
-          AccelerationChanged -> wrap createAccelerationEventListener $ setOnAccelerationEvent ?? \acc -> runWithActions [et :=> acc]
+          TouchesBegan -> wrap createTouchAllAtOnceEventListener $ setOnTouchesBegan ?? \t -> postEl $ runWithActions [et :=> t]
+          TouchesEnded -> wrap createTouchAllAtOnceEventListener $ setOnTouchesEnded ?? \t -> postEl $ runWithActions [et :=> t]
+          TouchesMoved -> wrap createTouchAllAtOnceEventListener $ setOnTouchesMoved ?? \t -> postEl $ runWithActions [et :=> t]
+          TouchesCancelled -> wrap createTouchAllAtOnceEventListener $ setOnTouchesCancelled ?? \t -> postEl $ runWithActions [et :=> t]
+          MouseDown -> wrap createMouseEventListener $ setOnMouseDown ?? \m -> postEl $ runWithActions [et :=> m]
+          MouseUp -> wrap createMouseEventListener $ setOnMouseUp ?? \m -> postEl $ runWithActions [et :=> m]
+          MouseMove -> wrap createMouseEventListener $ setOnMouseMove ?? \m -> postEl $ runWithActions [et :=> m]
+          MouseScroll -> wrap createMouseEventListener $ setOnMouseScroll ?? \m -> postEl $ runWithActions [et :=> m]
+          KeyPressed -> wrap createKeyboardEventListener $ setOnKeyPressed ?? \k -> postEl $ runWithActions [et :=> k]
+          KeyReleased -> wrap createKeyboardEventListener $ setOnKeyReleased ?? \k -> postEl $ runWithActions [et :=> k]
+          AccelerationChanged -> wrap createAccelerationEventListener $ setOnAccelerationEvent ?? \acc -> postEl $ runWithActions [et :=> acc]
     return $! e
 
 -- | Convenience function to obtain currently held keys
@@ -131,9 +131,9 @@ dynKeysDown keyPressed keyReleased = foldDynMaybe ($) S.empty $ leftmost [ ffor 
 -- | Get the tick per frame
 ticks :: NodeGraph t m => m (Event t NominalDiffTime)
 ticks = do
-    runWithActions <- askRunWithActions
+    postEl <- askPostEventLoop
     newEventWithTrigger $ \et ->
-        scheduleUpdate 0 $ \d -> runWithActions [et :=> d]
+        scheduleUpdate 0 $ \d -> postEl $ runWithActions [et :=> d]
 
 -- | Slow down a tick by a multiplier
 slowdown :: (Reflex t, MonadHold t m, MonadFix m) => Int -> Event t NominalDiffTime -> m (Event t NominalDiffTime)
@@ -161,11 +161,11 @@ takeWhileE f e = do
 load :: (NodeGraph t m, Num a) => [String] -> m (Event t (a, a), Event t ())
 load resources = do
     o <- A.createLoadOption
-    runWithActions <- askRunWithActions
+    postEl <- askPostEventLoop
     trigger <- newEventWithTrigger $ \et ->
         A.setLoadTrigger o $ \total loaded ->
-            runWithActions [et :=> (fromIntegral (loaded+1), fromIntegral total)]
+            postEl $ runWithActions [et :=> (fromIntegral (loaded+1), fromIntegral total)]
     finished <- newEventWithTrigger $ \et ->
-        A.setLoadFinish o $ runWithActions [et :=> ()]
+        A.setLoadFinish o $ postEl $ runWithActions [et :=> ()]
     schedulePostBuild $ A.load resources o
     return (trigger, finished)
