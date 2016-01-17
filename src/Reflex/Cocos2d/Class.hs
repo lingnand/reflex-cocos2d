@@ -12,6 +12,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Exception
+import Control.Concurrent
 import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
@@ -36,7 +37,7 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
         runWithActions <- askRunWithActions
         (eResult, trigger) <- newEventWithTriggerRef
         performEvent_ . ffor e $ \o -> o >>= \case
-                Just result -> liftIO $ readRef trigger
+                Just result -> void . liftIO . forkIO $ readRef trigger
                                         >>= mapM_ (\t -> runWithActions [t :=> result])
                 _ -> return ()
         return eResult
@@ -58,6 +59,7 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
     -- performEventAsync (we can add it if we need to)
     -- | Return the function that allows to propagate events and execute
     -- the action handlers
+    -- NOTE: this should NEVER be run in the main thread
     askRunWithActions :: m ([DSum (EventTrigger t)] -> IO ())
 
 -- * Compositions
@@ -88,7 +90,7 @@ node =| child = do
     n <- node
     (e, trigger) <- newEventWithTriggerRef
     runWithActions <- askRunWithActions
-    schedulePostBuild . liftIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> ()])
+    schedulePostBuild . void . liftIO . forkIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> ()])
     let newChild = leftmost [updated child, tag (current child) e]
     (_, evt) <- holdGraph n (return ()) newChild
     return (n, evt)

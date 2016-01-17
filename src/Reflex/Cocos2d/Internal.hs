@@ -13,7 +13,6 @@ module Reflex.Cocos2d.Internal
     ) where
 
 import Data.Dependent.Sum (DSum (..))
-import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State.Strict
@@ -21,6 +20,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Exception
+import Control.Concurrent
 import Control.Lens
 import Reflex
 import Reflex.Host.Class
@@ -90,8 +90,8 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
         forH_ newChild $ \(Graph g) -> do
             removeAllChildren p'
             (r, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p' runWithActions)) (GraphState (return ()) [])
-            mt <- readRef newChildBuiltTriggerRef
-            liftIO $ forM_ mt $ \t -> runWithActions [t :=> (r, mergeWith (>>) vas)]
+            _ <- liftIO . forkIO $ readRef newChildBuiltTriggerRef
+                        >>= mapM_ (\t -> runWithActions [t :=> (r, mergeWith (>>) vas)])
             postBuild
         return (result0, fmap fst newChildBuilt)
     performEvent_ a = Graph $ graphVoidActions %= (a:)
@@ -101,8 +101,9 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
 mainScene :: Graph Spider a -> IO ()
 mainScene (Graph g) = do
     scene <- createScene
+    lock <- newMVar ()
     runSpiderHost $ runHostFrame $ mdo
-        let runWithActions dm = runSpiderHost $ do
+        let runWithActions dm = withMVar lock $ const . runSpiderHost $ do
                 va <- fireEventsAndRead dm $ sequence =<< readEvent voidActionHandle
                 runHostFrame $ sequence_ va
         GraphState postBuild vas <- execStateT (runReaderT g (GraphEnv (toNode scene) runWithActions)) (GraphState (return ()) [])
