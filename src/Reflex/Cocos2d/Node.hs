@@ -10,6 +10,7 @@ module Reflex.Cocos2d.Node
       NodeConfig
     , LayerConfig
     , LayerColorConfig
+    , HasTransform(..)
     , HasBaseConfig(..)
     , HasSizeConfig(..)
     , HasColorConfig(..)
@@ -42,6 +43,7 @@ import Reflex
 import JavaScript.Cocos2d.Node
 import JavaScript.Cocos2d.Layer
 import JavaScript.Cocos2d.Sprite
+import Reflex.Transform
 import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Utils
 

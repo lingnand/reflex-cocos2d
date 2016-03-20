@@ -7,6 +7,7 @@
 module Reflex.Cocos2d.Class where
 
 import Data.Dependent.Sum (DSum (..))
+import Data.Functor.Identity
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Fix
@@ -38,7 +39,7 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
         (eResult, trigger) <- newEventWithTriggerRef
         performEvent_ . ffor e $ \o -> o >>= \case
                 Just result -> void . liftIO . forkIO $ readRef trigger
-                                        >>= mapM_ (\t -> runWithActions [t :=> result])
+                                        >>= mapM_ (\t -> runWithActions [t :=> Identity result])
                 _ -> return ()
         return eResult
     performEvent :: NodeGraph t m => Event t (HostFrame t a) -> m (Event t a)
@@ -60,7 +61,7 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
     -- | Return the function that allows to propagate events and execute
     -- the action handlers
     -- NOTE: this should NEVER be run in the main thread
-    askRunWithActions :: m ([DSum (EventTrigger t)] -> IO ())
+    askRunWithActions :: m ([DSum (EventTrigger t) Identity] -> IO ())
 
 -- * Compositions
 -- | Embed
@@ -90,7 +91,7 @@ node =| child = do
     n <- node
     (e, trigger) <- newEventWithTriggerRef
     runWithActions <- askRunWithActions
-    schedulePostBuild . void . liftIO . forkIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> ()])
+    schedulePostBuild . void . liftIO . forkIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> Identity ()])
     let newChild = leftmost [updated child, tag (current child) e]
     (_, evt) <- holdGraph n (return ()) newChild
     return (n, evt)

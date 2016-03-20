@@ -1,16 +1,32 @@
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Reflex.Cocos2d.Utils where
+module Reflex.Cocos2d.Utils
+    (
+      appDyn
+    , setV
+    , BaseConfig(..)
+    , HasBaseConfig(baseConfig, anchor, skew, zIndex, scale, visible, opacity, cascadeColor, cascadeOpacity)
+    , ColorConfig(..)
+    , HasColorConfig(..)
+    , SizeConfig(..)
+    , HasSizeConfig(..)
+    , appBaseConfig
+    , appColorConfig
+    , appSizeConfig
+    )
+  where
 
 import Linear
 import Data.Colour
 import Data.Default
-import Control.Lens
+import Control.Lens hiding (transform)
 import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
+import Reflex.Transform
 import Reflex.Cocos2d.Class
 
 -- * Various helper functions
@@ -24,11 +40,10 @@ setV setX setY n (V2 x y) = setX n x >> setY n y
 
 -- * Config components
 data BaseConfig t = BaseConfig
-    { _position :: Dynamic t (V2 Double)
+    { _bToTransform :: Transform t
     , _anchor :: Dynamic t (V2 Double)
     , _skew :: Dynamic t (V2 Double)
     , _zIndex :: Dynamic t Int
-    , _rotation :: Dynamic t (V2 Double)
     , _scale :: Dynamic t (V2 Double)
     , _visible :: Dynamic t Bool
     , _opacity :: Dynamic t Double -- ^ 0.0 - 1.0
@@ -37,12 +52,14 @@ data BaseConfig t = BaseConfig
     }
 makeClassy ''BaseConfig
 
+instance HasBaseConfig c t => HasTransform c t where
+    transform = bToTransform
+
 instance Reflex t => Default (BaseConfig t) where
-    def = BaseConfig { _position = constDyn zero
-                     , _anchor = constDyn zero
-                     , _skew = constDyn zero
+    def = BaseConfig { _bToTransform = def
+                     , _anchor = constDyn 0
+                     , _skew = constDyn 0
                      , _zIndex = constDyn 0
-                     , _rotation = constDyn zero
                      , _scale = constDyn $ pure 1.0
                      , _visible = constDyn True
                      , _opacity = constDyn 1.0
@@ -60,16 +77,16 @@ newtype SizeConfig t = SizeConfig { _size :: Dynamic t (V2 Double) }
 makeClassy ''SizeConfig
 
 instance Reflex t => Default (SizeConfig t) where
-    def = SizeConfig { _size = constDyn zero }
+    def = SizeConfig { _size = constDyn 0 }
 
 appBaseConfig :: (IsNode n, NodeGraph t m, HasBaseConfig c t) => c -> n -> m ()
 appBaseConfig c n = do
-    let BaseConfig pos anchor skew zIndex rotation scale visible opacity cascadeColor cascadeOpacity = c^.baseConfig
+    let BaseConfig (Transform pos rotation) anchor skew zIndex scale visible opacity cascadeColor cascadeOpacity = c^.baseConfig
     appDyn (\(V2 x y) -> setPosition n x y) pos
     appDyn (setV setAnchorX setAnchorY n) anchor
     appDyn (setV setSkewX setSkewY n) skew
     appDyn (setZIndex n) zIndex
-    appDyn (setV setRotationX setRotationY n) rotation
+    appDyn (setRotation n) rotation
     appDyn (setV setScaleX setScaleY n) scale
     appDyn (setVisible n) visible
     appDyn (setOpacity n) opacity

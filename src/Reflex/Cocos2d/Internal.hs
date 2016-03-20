@@ -31,7 +31,7 @@ import Reflex.Cocos2d.Class
 
 -- mostly borrowed from Reflex.Dom.Internal
 data GraphEnv t = GraphEnv { _graphParent :: !Node
-                           , _graphRunWithActions :: !([DSum (EventTrigger t)] -> IO ())
+                           , _graphRunWithActions :: !([DSum (EventTrigger t) Identity] -> IO ())
                            }
 
 makeLenses ''GraphEnv
@@ -91,7 +91,7 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
             removeAllChildren p'
             (r, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p' runWithActions)) (GraphState (return ()) [])
             _ <- liftIO . forkIO $ readRef newChildBuiltTriggerRef
-                        >>= mapM_ (\t -> runWithActions [t :=> (r, mergeWith (>>) vas)])
+                        >>= mapM_ (\t -> runWithActions [t :=> Identity (r, mergeWith (>>) vas)])
             postBuild
         return (result0, fmap fst newChildBuilt)
     performEvent_ a = Graph $ graphVoidActions %= (a:)
