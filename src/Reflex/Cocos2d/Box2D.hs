@@ -122,7 +122,9 @@ instance ToJSVal B2Vec where
 data BodyType = Static | Kinematic | Dynamic deriving (Show, Read, Enum)
 
 -- right now we don't care about center
-data FixtureShape = Polygon [V2 Double] | Circle Double deriving (Show, Read)
+data FixtureShape = Polygon [V2 Double]
+                  | Circle (V2 Double) Double deriving (Show, Read)
+makeLenses ''FixtureShape
 
 data FixtureDef = FixtureDef { _friction :: Double -- ^ friction coefficient, usually in the range [0,1]
                              , _restitution :: Double -- ^ elasticity, usually in the range [0,1]
@@ -259,8 +261,9 @@ createFixture body (FixtureDef fric rest density shape) = do
         jvs <- toJSVal vs
         b2s_poly_setAsArray sh jvs
         return sh
-      Circle radius -> do
+      Circle (V2 x y) radius -> do
         sh <- b2_createCircleShape
+        b2s_cir_setCenter sh x y
         b2s_cir_setRadius sh radius
         return sh
     b2fdef_setShape fdef sh
