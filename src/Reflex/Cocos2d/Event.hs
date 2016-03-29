@@ -28,10 +28,10 @@ module Reflex.Cocos2d.Event
     , takeWhileE
     -- * re-export the lower level
     , Touch(..)
-    , location
-    , previousLocation
+    , loc
+    , previousLoc
     , delta
-    , startLocation
+    , startLoc
     , Key(..)
     , MouseEvent
     , Acceleration(..)

@@ -19,14 +19,14 @@ module Reflex.Cocos2d.Utils
     )
   where
 
-import Linear
 import Data.Colour
 import Data.Default
-import Control.Lens hiding (transform)
+import Diagrams hiding (sample, opacity, _opacity, scale, size)
+import Control.Lens hiding (contains)
 import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
-import Reflex.Transform
+import Reflex.Trans
 import Reflex.Cocos2d.Class
 
 -- * Various helper functions
@@ -40,7 +40,7 @@ setV setX setY n (V2 x y) = setX n x >> setY n y
 
 -- * Config components
 data BaseConfig t = BaseConfig
-    { _bToTransform :: Transform t
+    { _bToTrans :: Trans t
     , _anchor :: Dynamic t (V2 Double)
     , _skew :: Dynamic t (V2 Double)
     , _zIndex :: Dynamic t Int
@@ -52,11 +52,11 @@ data BaseConfig t = BaseConfig
     }
 makeClassy ''BaseConfig
 
-instance HasBaseConfig c t => HasTransform c t where
-    transform = bToTransform
+instance HasBaseConfig c t => HasTrans c t where
+    trans = bToTrans
 
 instance Reflex t => Default (BaseConfig t) where
-    def = BaseConfig { _bToTransform = def
+    def = BaseConfig { _bToTrans = def
                      , _anchor = constDyn 0
                      , _skew = constDyn 0
                      , _zIndex = constDyn 0
@@ -76,17 +76,18 @@ instance Reflex t => Default (ColorConfig t) where
 newtype SizeConfig t = SizeConfig { _size :: Dynamic t (V2 Double) }
 makeClassy ''SizeConfig
 
+
 instance Reflex t => Default (SizeConfig t) where
     def = SizeConfig { _size = constDyn 0 }
 
 appBaseConfig :: (IsNode n, NodeGraph t m, HasBaseConfig c t) => c -> n -> m ()
 appBaseConfig c n = do
-    let BaseConfig (Transform pos rotation) anchor skew zIndex scale visible opacity cascadeColor cascadeOpacity = c^.baseConfig
-    appDyn (\(V2 x y) -> setPosition n x y) pos
+    let BaseConfig (Trans pos rotation) anchor skew zIndex scale visible opacity cascadeColor cascadeOpacity = c^.baseConfig
+    appDyn (\p -> let (x, y) = unp2 p in setPosition n x y) pos
     appDyn (setV setAnchorX setAnchorY n) anchor
     appDyn (setV setSkewX setSkewY n) skew
     appDyn (setZIndex n) zIndex
-    appDyn (setRotation n) rotation
+    appDyn (setRotation n . negate . (^._theta.deg)) rotation
     appDyn (setV setScaleX setScaleY n) scale
     appDyn (setVisible n) visible
     appDyn (setOpacity n) opacity

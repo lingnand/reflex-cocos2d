@@ -19,10 +19,10 @@ module Reflex.Cocos2d.Label
     , label_
     ) where
 
-import Linear
 import Data.Colour
 import Data.Colour.Names
 import Data.Default
+import Diagrams hiding (size)
 import Control.Monad
 import Control.Lens
 import JavaScript.Cocos2d.Node
@@ -50,7 +50,7 @@ makeLenses ''Shadow
 
 instance Default Shadow where
     def = Shadow { _shadowColor = white `withOpacity` 0.5
-                 , _shadowOffset = zero
+                 , _shadowOffset = 0
                  , _shadowBlur = 0
                  }
 

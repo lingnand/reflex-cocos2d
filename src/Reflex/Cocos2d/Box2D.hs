@@ -39,22 +39,22 @@ module Reflex.Cocos2d.Box2D
     )
   where
 
-import Linear
+import Diagrams
+import Data.Default
 import Data.Dependent.Sum (DSum (..))
 import Data.Time.Clock
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Ref
-import Control.Lens hiding (transform)
+import Control.Lens
 import Control.Concurrent.MVar
 import GHCJS.Types
 import GHCJS.Marshal
 import Reflex
 import Reflex.Host.Class
-import Reflex.Transform
+import Reflex.Trans
 import Reflex.Cocos2d.Utils
 import Reflex.Cocos2d.Class
-import Data.Default
 
 -- public types
 newtype World = World JSVal
@@ -122,8 +122,8 @@ instance ToJSVal B2Vec where
 data BodyType = Static | Kinematic | Dynamic deriving (Show, Read, Enum)
 
 -- right now we don't care about center
-data FixtureShape = Polygon [V2 Double]
-                  | Circle (V2 Double) Double deriving (Show, Read)
+data FixtureShape = Polygon [P2 Double]
+                  | Circle (P2 Double) Double deriving (Show, Read)
 makeLenses ''FixtureShape
 
 data FixtureDef = FixtureDef { _friction :: Double -- ^ friction coefficient, usually in the range [0,1]
@@ -134,10 +134,11 @@ data FixtureDef = FixtureDef { _friction :: Double -- ^ friction coefficient, us
 makeLenses ''FixtureDef
 
 data BodyDef = BodyDef { _bodyType :: BodyType
-                       , _bodyPosition :: V2 Double
-                       , _bodyRotation :: Double
+                       , _bodyPosition :: P2 Double
+                       , _bodyRotation :: Direction V2 Double
                        , _bodyVelocity :: V2 Double
-                       , _bodyAngularVelocity :: Double
+                       -- | Angle rotated per second
+                       , _bodyAngularVelocity :: Angle Double
                        -- | the fixture definitins, this allows a body to
                        -- be created with static fixtures
                        , _fixtureDefs :: [FixtureDef]
@@ -147,21 +148,21 @@ makeClassy ''BodyDef
 instance Default BodyDef where
     def = BodyDef { _bodyType = Static
                   , _bodyPosition = 0
-                  , _bodyRotation = 0
+                  , _bodyRotation = xDir
                   , _bodyVelocity = 0
-                  , _bodyAngularVelocity = 0
+                  , _bodyAngularVelocity = 0 @@ rad
                   -- | the fixture definitins, this allows a body to
                   -- be created with static fixtures
                   , _fixtureDefs = []
                   }
 
 data BodyConfig t = BodyConfig { _setBodyType :: Event t BodyType
-                               , _setBodyPosition :: Event t (V2 Double)
-                               , _setBodyRotation :: Event t Double
+                               , _setBodyPosition :: Event t (P2 Double)
+                               , _setBodyRotation :: Event t (Direction V2 Double)
                                , _setBodyVelocity :: Event t (V2 Double)
                                -- | this is taken as degree/second to
                                -- comply with the same unit as in rotation
-                               , _setBodyAngularVelocity :: Event t Double
+                               , _setBodyAngularVelocity :: Event t (Angle Double)
                                -- , setAwake :: Event t Bool
                                -- , setActive :: Event t Bool
                                , _bcToBodyDef :: BodyDef
@@ -185,8 +186,8 @@ instance Eq Body where
 
 data BodyTriggers t = BodyTriggers {
     _bTrBody :: Body, -- body reference variable
-    _bTrPosition :: Ref IO (Maybe (EventTrigger t (V2 Double))),
-    _bTrRotation :: Ref IO (Maybe (EventTrigger t Double))
+    _bTrPosition :: Ref IO (Maybe (EventTrigger t (P2 Double))),
+    _bTrRotation :: Ref IO (Maybe (EventTrigger t (Direction V2 Double)))
 }
 makeLenses ''BodyTriggers
 
@@ -195,7 +196,7 @@ makeLenses ''BodyTriggers
 -- the polling interval - any change that happens within in the interval
 -- would only be picked up in the next poll
 data DynBody t = DynBody { _body :: Body -- ^ Used with Destroy()
-                         , _dbToTransform :: Transform t
+                         , _dbToTrans :: Trans t
                          }
 -- ! two DynBody are eqauted over the underlying Body references
 instance Eq (DynBody t) where
@@ -203,8 +204,8 @@ instance Eq (DynBody t) where
 
 makeLenses ''DynBody
 
-instance HasTransform (DynBody t) t where
-    transform = dbToTransform
+instance HasTrans (DynBody t) t where
+    trans = dbToTrans
 
 data WorldConfig t = WorldConfig { _gravity :: Dynamic t (V2 Double)
                                  }
@@ -212,13 +213,6 @@ makeLenses ''WorldConfig
 
 instance Reflex t => Default (WorldConfig t) where
     def = WorldConfig $ constDyn 0
-
--- | convert angle (CCW radians) to rotation (CW degrees)
-b2AngleToCCRotation :: Double -> Double
-b2AngleToCCRotation angle = - angle * 180 / pi
-
-ccRotationToB2Angle :: Double -> Double
-ccRotationToB2Angle rotation = - rotation * pi / 180
 
 data DynWorld t = DynWorld World (MVar [BodyTriggers t])
 
@@ -238,8 +232,8 @@ world (WorldConfig gravity) ticks = do
               x <- b2_getX pos
               y <- b2_getY pos
               angle <- b2_getAngle b -- this is in radians
-              sendV posTr (V2 x y)
-              sendV rotTr (b2AngleToCCRotation angle)
+              sendV posTr (x ^& y)
+              sendV rotTr (eDir $ angle @@ rad)
           -- sendV :: Ref IO (Maybe (EventTrigger t a)) -> a -> IO ()
           sendV tr v = do
             mt <- readRef tr
@@ -256,12 +250,14 @@ createFixture body (FixtureDef fric rest density shape) = do
     sh <- case shape of
       Polygon verts -> do
         sh <- b2_createPolygonShape
-        vs <- forM verts $ \(V2 x y) ->
-              b2_createVec x y
+        vs <- forM verts $ \p ->
+              let (x, y) = unp2 p
+              in b2_createVec x y
         jvs <- toJSVal vs
         b2s_poly_setAsArray sh jvs
         return sh
-      Circle (V2 x y) radius -> do
+      Circle p radius -> do
+        let (x, y) = unp2 p
         sh <- b2_createCircleShape
         b2s_cir_setCenter sh x y
         b2s_cir_setRadius sh radius
@@ -270,23 +266,24 @@ createFixture body (FixtureDef fric rest density shape) = do
     b2_createFixture body fdef
 
 createBody :: NodeGraph t m => DynWorld t -> BodyConfig t -> m (DynBody t)
-createBody (DynWorld world bodyTrs) (BodyConfig te pe re ve ave (BodyDef t p@(V2 x y) r (V2 vx vy) av fs)) = do
+createBody (DynWorld world bodyTrs) (BodyConfig te pe re ve ave (BodyDef t p r (V2 vx vy) av fs)) = do
+    let (x, y) = unp2 p
     -- first assemble the BodyDef
     body <- liftIO $ do
       bdef <- b2_createBodyDef
       b2bdef_setType bdef (fromEnum t)
       b2bdef_setPosition bdef x y
-      b2bdef_setAngle bdef (ccRotationToB2Angle r)
+      b2bdef_setAngle bdef (r^._theta.rad)
       b2bdef_setVelocity bdef vx vy
-      b2bdef_setAngularVelocity bdef (ccRotationToB2Angle av)
+      b2bdef_setAngularVelocity bdef (av^.rad)
       b2_createBody world bdef
     liftIO . forM_ fs $ createFixture body
     -- set body attributes on each new event
     forH_ te $ liftIO . b2_setType body . fromEnum
-    forH_ pe $ \(V2 x y) -> liftIO (b2_setPosition body x y)
-    forH_ re $ liftIO . b2_setAngle body . ccRotationToB2Angle
+    forH_ pe $ \p -> let (x, y) = unp2 p in liftIO (b2_setPosition body x y)
+    forH_ re $ liftIO . b2_setAngle body . (^._theta.rad)
     forH_ ve $ \(V2 x y) -> liftIO (b2_setLinearVelocity body x y)
-    forH_ ave $ liftIO . b2_setAngularVelocity body
+    forH_ ave $ liftIO . b2_setAngularVelocity body . (^.rad)
     -- create trigger refs
     (posE, posTr) <- newEventWithTriggerRef
     (rotE, rotTr) <- newEventWithTriggerRef
@@ -295,4 +292,5 @@ createBody (DynWorld world bodyTrs) (BodyConfig te pe re ve ave (BodyDef t p@(V2
     -- finally return the events
     posDyn <- holdDyn p posE
     rotDyn <- holdDyn r rotE
-    return $ DynBody body (Transform posDyn rotDyn)
+    return $ DynBody body (Trans posDyn rotDyn)
+

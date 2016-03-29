@@ -10,7 +10,7 @@ module Reflex.Cocos2d.Node
       NodeConfig
     , LayerConfig
     , LayerColorConfig
-    , HasTransform(..)
+    , HasTrans(..)
     , HasBaseConfig(..)
     , HasSizeConfig(..)
     , HasColorConfig(..)
@@ -38,12 +38,12 @@ module Reflex.Cocos2d.Node
 import Data.Default
 import Control.Monad
 import Control.Lens hiding (flipped)
-import Linear
+import Diagrams hiding (size)
 import Reflex
 import JavaScript.Cocos2d.Node
 import JavaScript.Cocos2d.Layer
 import JavaScript.Cocos2d.Sprite
-import Reflex.Transform
+import Reflex.Trans
 import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Utils
 
