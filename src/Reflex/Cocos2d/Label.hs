@@ -85,11 +85,20 @@ class HasNodeConfig c t => HasLabelConfig c t | c -> t where
     shadow :: Lens' c (Dynamic t (Maybe Shadow))
     shadow = labelConfig . lbToShadow
 
+instance HasLabelConfig (LabelConfig t) t where
+    labelConfig = id
+
 instance HasNodeConfig (LabelConfig t) t where
     nodeConfig = lbToNodeConfig
 
-instance HasLabelConfig (LabelConfig t) t where
-    labelConfig = id
+instance HasBaseConfig (LabelConfig t) t where
+    baseConfig = nodeConfig . baseConfig
+
+instance HasTrans (LabelConfig t) t where
+    trans = nodeConfig . trans
+
+instance HasSizeConfig (LabelConfig t) t where
+    sizeConfig = nodeConfig . sizeConfig
 
 instance Reflex t => Default (LabelConfig t) where
     def = LabelConfig { _lbToNodeConfig = def & anchor .~ constDyn (pure 0.5)
@@ -105,11 +114,20 @@ instance Reflex t => Default (LabelConfig t) where
 
 data DynLabel t = DynLabel (LabelConfig t) Label
 
-instance HasNodeConfig (DynLabel t) t where
-    nodeConfig = labelConfig . lbToNodeConfig
-
 instance HasLabelConfig (DynLabel t) t where
     labelConfig f (DynLabel c l) = (\c' -> DynLabel c' l) <$> f c
+
+instance HasNodeConfig (DynLabel t) t where
+    nodeConfig = labelConfig . nodeConfig
+
+instance HasBaseConfig (DynLabel t) t where
+    baseConfig = labelConfig . baseConfig
+
+instance HasTrans (DynLabel t) t where
+    trans = labelConfig . trans
+
+instance HasSizeConfig (DynLabel t) t where
+    sizeConfig = labelConfig . sizeConfig
 
 instance IsNode (DynLabel t) where
     toNode (DynLabel _ l) = toNode l

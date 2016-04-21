@@ -56,7 +56,6 @@ library
                        Reflex.Cocos2d.Node,
                        Reflex.Cocos2d.Label,
                        Reflex.Cocos2d.Event,
-                       Reflex.Cocos2d.Box2D,
                        Reflex.Cocos2d.Utils
   
   -- Modules included in this library but not exported.
@@ -81,6 +80,7 @@ library
                        lens,
                        time,
                        data-default,
+                       thread-local-storage,
                        ghcjs-base,
                        ghcjs-cocos2d
   

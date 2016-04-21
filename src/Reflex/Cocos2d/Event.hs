@@ -21,11 +21,16 @@ module Reflex.Cocos2d.Event
     , dynKeysDown
     -- * Time
     , ticks
-    , slowdown
     -- * Async
     , load
     -- * Utility
+    , mapAccumMaybe
+    , mapAccum
+    , accum
+    , dilate
     , takeWhileE
+    , dropWhileE
+    , breakE
     -- * re-export the lower level
     , Touch(..)
     , loc
@@ -135,22 +140,58 @@ ticks = do
     newEventWithTrigger $ \et ->
         scheduleUpdate 0 $ \d -> runWithActions [et :=> Identity d]
 
--- | Slow down a tick by a multiplier
-slowdown :: (Reflex t, MonadHold t m, MonadFix m) => Int -> Event t NominalDiffTime -> m (Event t NominalDiffTime)
-slowdown multiplier evt = do
-    let incre dt (t, c) = (t+dt, c+1)
-        t0 = fromInteger 0
-    acc <- foldDyn incre (t0, 0) evt
-    let succ = fforMaybe (updated acc) $ \(d, c) -> guard (c `rem` multiplier == 0)
-                                                 >> return d
-    dyn <- holdDyn t0 succ
-    return $ attachWith subtract (current dyn) (updated dyn)
+mapAccumMaybe :: (Reflex t, MonadHold t m, MonadFix m) => (a -> b -> (a, Maybe c)) -> a -> Event t b -> m (Event t c)
+mapAccumMaybe f z e = do
+    e' <- foldDyn (\b (a, _) -> f a b) (z, Nothing) e
+    return . fmapMaybe snd $ updated e'
+
+mapAccum :: (Reflex t, MonadHold t m, MonadFix m) => (a -> b -> (a, c)) -> a -> Event t b -> m (Event t c)
+mapAccum f = mapAccumMaybe $ \a b -> let (a', c) = f a b in (a', Just c)
+
+accum :: (Reflex t, MonadHold t m, MonadFix m) => (a -> b -> a) -> a -> Event t b -> m (Event t (a, b))
+accum f = mapAccum $ \a b -> let a' = f a b in (a', (a', b))
+
+-- | Modulate a ticker
+dilate :: (Reflex t, MonadHold t m, MonadFix m, Num a, Ord a) => a -> Event t a -> m (Event t a)
+dilate limit = flip mapAccumMaybe (0, limit) $ \(acc, l) d ->
+                    let sum = acc + d in
+                    if sum > l then ((0, limit-(sum-l)), Just sum)
+                               else ((sum, l), Nothing)
 
 -- | Efficiently cut off a stream of events at a point
 takeWhileE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m (Event t a)
 takeWhileE f e = do
-    let e' = fforMaybe e $ \a -> guard (f a) >> return never
-    return . switch =<< hold e =<< headE e'
+    let gateE = fforMaybe e $ \a -> guard (not $ f a) >> return False
+    gateDyn <- holdDyn True gateE
+    let e' = attachDynWithMaybe (\g a -> guard g >> return a) gateDyn e
+    return . switch =<< hold e' =<< headE (const never <$> gateE)
+
+-- | Efficiently cut off a stream of events at a point
+dropWhileE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m (Event t a)
+dropWhileE f e = do
+    let e' = fforMaybe e $ \a -> guard (not $ f a) >> return e
+    switchPromptly never =<< headE e'
+
+-- | split an Event into two parts on a condition
+breakE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m (Event t a, Event t a)
+breakE f e = do
+    let gateE = fforMaybe e $ \a -> guard (not $ f a) >> return False
+    gateDyn <- holdDyn True gateE
+    let e' = attachDynWithMaybe (\g a -> guard g >> return a) gateDyn e
+    gateE' <- headE gateE
+    bef <- switch <$> hold e' (const never <$> gateE')
+    aft <- switchPromptly never (const e <$> gateE')
+    return (bef, aft)
+
+
+-- | split an Event into two parts by counting the numbers
+-- splitE ::
+
+-- takeE
+--
+-- dropE
+--
+--
 
 -- | Load a list of resources in an async manner
 -- returns (Event t (loaded, total), finished)

@@ -13,7 +13,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Exception
-import Control.Concurrent
 import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
@@ -38,7 +37,7 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
         runWithActions <- askRunWithActions
         (eResult, trigger) <- newEventWithTriggerRef
         performEvent_ . ffor e $ \o -> o >>= \case
-                Just result -> void . liftIO . forkIO $ readRef trigger
+                Just result -> liftIO $ readRef trigger
                                         >>= mapM_ (\t -> runWithActions [t :=> Identity result])
                 _ -> return ()
         return eResult
@@ -91,7 +90,7 @@ node =| child = do
     n <- node
     (e, trigger) <- newEventWithTriggerRef
     runWithActions <- askRunWithActions
-    schedulePostBuild . void . liftIO . forkIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> Identity ()])
+    schedulePostBuild . liftIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> Identity ()])
     let newChild = leftmost [updated child, tag (current child) e]
     (_, evt) <- holdGraph n (return ()) newChild
     return (n, evt)

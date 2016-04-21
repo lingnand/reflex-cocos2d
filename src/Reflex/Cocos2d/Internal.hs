@@ -13,6 +13,8 @@ module Reflex.Cocos2d.Internal
     ) where
 
 import Data.Dependent.Sum (DSum (..))
+import Data.IORef
+import Data.TLS.GHC
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State.Strict
@@ -90,23 +92,53 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
         forH_ newChild $ \(Graph g) -> do
             removeAllChildren p'
             (r, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p' runWithActions)) (GraphState (return ()) [])
-            _ <- liftIO . forkIO $ readRef newChildBuiltTriggerRef
-                        >>= mapM_ (\t -> runWithActions [t :=> Identity (r, mergeWith (>>) vas)])
+            liftIO $ readRef newChildBuiltTriggerRef
+                     >>= mapM_ (\t -> runWithActions [t :=> Identity (r, mergeWith (>>) vas)])
             postBuild
         return (result0, fmap fst newChildBuilt)
     performEvent_ a = Graph $ graphVoidActions %= (a:)
     askRunWithActions = Graph $ view graphRunWithActions
+
+-- the current problem with voidActions is that they only record
+-- inscrutible IOs that do little for proper sequencing - if there is
+-- nested calls to runWithActions then we have to forkIO to get over the
+-- deadlocks
+--
+-- A better idea might be to send over data structures of the form
+-- data LazyIO a = LazyIO { immediate :: IO a, later :: Maybe (LazyIO a) }
+-- basically, we could save the blocks which could lead to deadlocks into
+-- the `later` field, and when evaluating this LazyIO structure we first
+-- complete all the `immediate` blocks before diving into the `later`
+-- fields (which itself might have immediate and later). This basically
+-- allows complex sequencing effects that should help getting over the
+-- deadlocks
 
 -- construct a new scene with a NodeGraph
 mainScene :: Graph Spider a -> IO ()
 mainScene (Graph g) = do
     scene <- createScene
     lock <- newMVar ()
+    tlsRefs <- mkTLS $ newIORef (False, []) -- (running, saved_dm)
     runSpiderHost $ runHostFrame $ mdo
-        let runWithActions dm = withMVar lock $ const . runSpiderHost $ do
-                va <- fireEventsAndRead dm $ sequence =<< readEvent voidActionHandle
-                runHostFrame $ sequence_ va
+        let runWithActions [] = return ()
+            runWithActions dm = do
+              -- we use thread-local storage to store recursive invocations of
+              tlsRef <- getTLS tlsRefs
+              (running, saved) <- readIORef tlsRef
+              if running
+                then writeIORef tlsRef (running, saved++dm)
+                else do
+                  let process [] = writeIORef tlsRef (False, [])
+                      process es = do
+                        writeIORef tlsRef (True, [])
+                        withMVar lock $ const . runSpiderHost $ do
+                            va <- fireEventsAndRead es $ sequence =<< readEvent voidActionHandle
+                            runHostFrame $ sequence_ va
+                        (_, saved) <- readIORef tlsRef
+                        process saved
+                  process dm
         GraphState postBuild vas <- execStateT (runReaderT g (GraphEnv (toNode scene) runWithActions)) (GraphState (return ()) [])
         postBuild
         voidActionHandle <- subscribeEvent $ mergeWith (>>) vas
         runScene scene
+    freeTLS tlsRefs -- Will we reach here? Probably not!

@@ -52,7 +52,7 @@ data BaseConfig t = BaseConfig
     }
 makeClassy ''BaseConfig
 
-instance HasBaseConfig c t => HasTrans c t where
+instance HasTrans (BaseConfig t) t where
     trans = bToTrans
 
 instance Reflex t => Default (BaseConfig t) where

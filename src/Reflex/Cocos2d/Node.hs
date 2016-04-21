@@ -1,4 +1,3 @@
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -56,14 +55,17 @@ makeLenses ''NodeConfig
 class (HasBaseConfig c t, HasSizeConfig c t) => HasNodeConfig c t | c -> t where
     nodeConfig :: Lens' c (NodeConfig t)
 
-instance {-# OVERLAPPABLE #-} HasNodeConfig c t => HasBaseConfig c t where
-    baseConfig = nodeConfig . nToBaseConfig
-
-instance {-# OVERLAPPABLE #-} HasNodeConfig c t => HasSizeConfig c t where
-    sizeConfig = nodeConfig . nToSizeConfig
-
 instance HasNodeConfig (NodeConfig t) t where
     nodeConfig = id
+
+instance HasBaseConfig (NodeConfig t) t where
+    baseConfig = nToBaseConfig
+
+instance HasTrans (NodeConfig t) t where
+    trans = baseConfig . trans
+
+instance HasSizeConfig (NodeConfig t) t where
+    sizeConfig = nToSizeConfig
 
 instance Reflex t => Default (NodeConfig t) where
     def = NodeConfig def def
@@ -76,6 +78,15 @@ data DynNode t = DynNode (NodeConfig t) Node
 
 instance HasNodeConfig (DynNode t) t where
     nodeConfig f (DynNode c n) = (\c' -> DynNode c' n) <$> f c
+
+instance HasBaseConfig (DynNode t) t where
+    baseConfig = nodeConfig . baseConfig
+
+instance HasTrans (DynNode t) t where
+    trans = nodeConfig . trans
+
+instance HasSizeConfig (DynNode t) t where
+    sizeConfig = nodeConfig . sizeConfig
 
 instance IsNode (DynNode t) where
     toNode (DynNode _ n) = n
@@ -97,11 +108,20 @@ makeLenses ''LayerConfig
 class HasNodeConfig c t => HasLayerConfig c t | c -> t where
     layerConfig :: Lens' c (LayerConfig t)
 
-instance {-# OVERLAPPABLE #-} HasLayerConfig c t => HasNodeConfig c t where
-    nodeConfig = layerConfig . lToNodeConfig
-
 instance HasLayerConfig (LayerConfig t) t where
     layerConfig = id
+
+instance HasNodeConfig (LayerConfig t) t where
+    nodeConfig = lToNodeConfig
+
+instance HasBaseConfig (LayerConfig t) t where
+    baseConfig = nodeConfig . baseConfig
+
+instance HasSizeConfig (LayerConfig t) t where
+    sizeConfig = nodeConfig . nToSizeConfig
+
+instance HasTrans (LayerConfig t) t where
+    trans = nodeConfig . trans
 
 -- XXX: HACK - obtain the window size as a constant (there should be a better way?)
 foreign import javascript unsafe "cc.winSize.width" winWidth :: Double
@@ -116,6 +136,18 @@ data DynLayer t = DynLayer (LayerConfig t) Layer
 
 instance HasLayerConfig (DynLayer t) t where
     layerConfig f (DynLayer c l) = (\c' -> DynLayer c' l) <$> f c
+
+instance HasNodeConfig (DynLayer t) t where
+    nodeConfig = layerConfig . nodeConfig
+
+instance HasBaseConfig (DynLayer t) t where
+    baseConfig = layerConfig . baseConfig
+
+instance HasTrans (DynLayer t) t where
+    trans = layerConfig . trans
+
+instance HasSizeConfig (DynLayer t) t where
+    sizeConfig = layerConfig . sizeConfig
 
 instance IsNode (DynLayer t) where
     toNode (DynLayer _ l) = toNode l
@@ -143,14 +175,26 @@ makeLenses ''LayerColorConfig
 class (HasLayerConfig c t, HasColorConfig c t) => HasLayerColorConfig c t | c -> t where
     layerColorConfig :: Lens' c (LayerColorConfig t)
 
-instance {-# OVERLAPPABLE #-} HasLayerColorConfig c t => HasLayerConfig c t where
-    layerConfig = layerColorConfig . lcToLayerConfig
+instance HasLayerColorConfig (LayerColorConfig t) t where
+    layerColorConfig = id
 
 instance HasColorConfig (LayerColorConfig t) t where
     colorConfig = lcToColorConfig
 
-instance HasLayerColorConfig (LayerColorConfig t) t where
-    layerColorConfig = id
+instance HasLayerConfig (LayerColorConfig t) t where
+    layerConfig = lcToLayerConfig
+
+instance HasNodeConfig (LayerColorConfig t) t where
+    nodeConfig = layerConfig . nodeConfig
+
+instance HasBaseConfig (LayerColorConfig t) t where
+    baseConfig = layerConfig . baseConfig
+
+instance HasTrans (LayerColorConfig t) t where
+    trans = layerConfig . trans
+
+instance HasSizeConfig (LayerColorConfig t) t where
+    sizeConfig = layerConfig . sizeConfig
 
 instance Reflex t => Default (LayerColorConfig t) where
     def = LayerColorConfig def def
@@ -158,11 +202,26 @@ instance Reflex t => Default (LayerColorConfig t) where
 
 data DynLayerColor t = DynLayerColor (LayerColorConfig t) LayerColor
 
-instance HasColorConfig (DynLayerColor t) t where
-    colorConfig = layerColorConfig . lcToColorConfig
-
 instance HasLayerColorConfig (DynLayerColor t) t where
     layerColorConfig f (DynLayerColor c l) = (\c' -> DynLayerColor c' l) <$> f c
+
+instance HasColorConfig (DynLayerColor t) t where
+    colorConfig = layerColorConfig . colorConfig
+
+instance HasLayerConfig (DynLayerColor t) t where
+    layerConfig = layerColorConfig . layerConfig
+
+instance HasNodeConfig (DynLayerColor t) t where
+    nodeConfig = layerColorConfig . nodeConfig
+
+instance HasBaseConfig (DynLayerColor t) t where
+    baseConfig = layerColorConfig . baseConfig
+
+instance HasTrans (DynLayerColor t) t where
+    trans = layerColorConfig . trans
+
+instance HasSizeConfig (DynLayerColor t) t where
+    sizeConfig = layerColorConfig . sizeConfig
 
 instance IsNode (DynLayerColor t) where
     toNode (DynLayerColor _ l) = toNode l
@@ -199,6 +258,9 @@ class (HasBaseConfig c t, HasColorConfig c t) => HasSpriteConfig c t | c -> t wh
 instance HasBaseConfig (SpriteConfig t) t where
     baseConfig = sToBaseConfig
 
+instance HasTrans (SpriteConfig t) t where
+    trans = baseConfig . trans
+
 instance HasColorConfig (SpriteConfig t) t where
     colorConfig = sToColorConfig
 
@@ -215,14 +277,17 @@ instance Reflex t => Default (SpriteConfig t) where
 
 data DynSprite t = DynSprite (SpriteConfig t) Sprite
 
+instance HasSpriteConfig (DynSprite t) t where
+    spriteConfig f (DynSprite c s) = (\c' -> DynSprite c' s) <$> f c
+
 instance HasBaseConfig (DynSprite t) t where
     baseConfig = spriteConfig . sToBaseConfig
 
+instance HasTrans (DynSprite t) t where
+    trans = spriteConfig . trans
+
 instance HasColorConfig (DynSprite t) t where
     colorConfig = spriteConfig . sToColorConfig
-
-instance HasSpriteConfig (DynSprite t) t where
-    spriteConfig f (DynSprite c s) = (\c' -> DynSprite c' s) <$> f c
 
 instance IsNode (DynSprite t) where
     toNode (DynSprite _ s) = toNode s
