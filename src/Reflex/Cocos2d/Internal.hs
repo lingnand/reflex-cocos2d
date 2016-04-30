@@ -14,7 +14,6 @@ module Reflex.Cocos2d.Internal
 
 import Data.Dependent.Sum (DSum (..))
 import Data.IORef
-import Data.TLS.GHC
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State.Strict
@@ -22,7 +21,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Exception
-import Control.Concurrent
 import Control.Lens
 import Reflex
 import Reflex.Host.Class
@@ -99,46 +97,45 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
     performEvent_ a = Graph $ graphVoidActions %= (a:)
     askRunWithActions = Graph $ view graphRunWithActions
 
--- the current problem with voidActions is that they only record
--- inscrutible IOs that do little for proper sequencing - if there is
--- nested calls to runWithActions then we have to forkIO to get over the
--- deadlocks
+-- the reason why we could do away with LOCKs and thread local storage in
+-- `runWithActions`:
+-- 1. we expect the source of any event, eventually, is inside a javascript
+--    foreign functional callback
+-- 2. that means `runWithActions` always runs inside a function callback
+-- 3. when inside a function callback, the ghcjs runtime has NO way to
+--    reschedule other things to run OR interrupt the execution of the
+--    callback (given that the haskell callback is constructed as
+--    synchronous)
+-- 4. this means there can be no race condition introduced by the ghcjs
+--    runtime
 --
--- A better idea might be to send over data structures of the form
--- data LazyIO a = LazyIO { immediate :: IO a, later :: Maybe (LazyIO a) }
--- basically, we could save the blocks which could lead to deadlocks into
--- the `later` field, and when evaluating this LazyIO structure we first
--- complete all the `immediate` blocks before diving into the `later`
--- fields (which itself might have immediate and later). This basically
--- allows complex sequencing effects that should help getting over the
--- deadlocks
+-- Conclusion:
+-- 1. make sure that every event e.g., constructed with
+--    newEventWithTrigger, sends the events in a callback
+-- 2. OR the event depends on a event that is constructed in the way of 1
 
 -- construct a new scene with a NodeGraph
 mainScene :: Graph Spider a -> IO ()
 mainScene (Graph g) = do
     scene <- createScene
-    lock <- newMVar ()
-    tlsRefs <- mkTLS $ newIORef (False, []) -- (running, saved_dm)
+    recRef <- newIORef (False, []) -- (running, saved_dm)
     runSpiderHost $ runHostFrame $ mdo
         let runWithActions [] = return ()
             runWithActions dm = do
-              -- we use thread-local storage to store recursive invocations of
-              tlsRef <- getTLS tlsRefs
-              (running, saved) <- readIORef tlsRef
+              (running, saved) <- readIORef recRef
               if running
-                then writeIORef tlsRef (running, saved++dm)
+                then writeIORef recRef (running, saved++dm)
                 else do
-                  let process [] = writeIORef tlsRef (False, [])
+                  let process [] = writeIORef recRef (False, [])
                       process es = do
-                        writeIORef tlsRef (True, [])
-                        withMVar lock $ const . runSpiderHost $ do
+                        writeIORef recRef (True, [])
+                        runSpiderHost $ do
                             va <- fireEventsAndRead es $ sequence =<< readEvent voidActionHandle
                             runHostFrame $ sequence_ va
-                        (_, saved) <- readIORef tlsRef
+                        (_, saved) <- readIORef recRef
                         process saved
                   process dm
         GraphState postBuild vas <- execStateT (runReaderT g (GraphEnv (toNode scene) runWithActions)) (GraphState (return ()) [])
         postBuild
         voidActionHandle <- subscribeEvent $ mergeWith (>>) vas
         runScene scene
-    freeTLS tlsRefs -- Will we reach here? Probably not!

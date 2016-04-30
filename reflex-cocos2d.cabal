@@ -56,6 +56,7 @@ library
                        Reflex.Cocos2d.Node,
                        Reflex.Cocos2d.Label,
                        Reflex.Cocos2d.Event,
+                       Reflex.Cocos2d.Chipmunk,
                        Reflex.Cocos2d.Utils
   
   -- Modules included in this library but not exported.

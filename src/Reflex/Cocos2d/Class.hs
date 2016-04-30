@@ -1,9 +1,9 @@
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 module Reflex.Cocos2d.Class where
 
 import Data.Dependent.Sum (DSum (..))
@@ -16,6 +16,10 @@ import Control.Monad.Exception
 import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
+
+-- TODO:
+-- 1. Chipmunk - active flag with Dynamic input
+-- 2. Node with color support (but normal anchorPoint, no weird Layer kind)
 
 class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
       , MonadRef m, Ref m ~ Ref IO, MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO

@@ -1,3 +1,6 @@
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GADTs #-}
 module Reflex.Cocos2d.Event
@@ -6,17 +9,17 @@ module Reflex.Cocos2d.Event
     -- * UI Events
     , UIEventType
     -- ** Convenience Lens Getters
-    , touchesBegan
-    , touchesEnded
-    , touchesMoved
-    , touchesCancelled
+    , TouchEvents(TouchEvents)
+    , HasTouchEvents(..)
+    , touched
+    , dragged
     , mouseDown
     , mouseUp
     , mouseMove
     , mouseScroll
     , keyPressed
     , keyReleased
-    , accelerationChanged
+    , accelChanged
     , uiEvents
     , dynKeysDown
     -- * Time
@@ -39,8 +42,7 @@ module Reflex.Cocos2d.Event
     , startLoc
     , Key(..)
     , MouseEvent
-    , Acceleration(..)
-    , vec
+    , Accel(..)
     , time
     ) where
 
@@ -48,18 +50,44 @@ import Data.Time.Clock
 import qualified Data.Set as S
 import Data.Dependent.Sum (DSum (..))
 import Data.GADT.Compare.TH
+import Data.Maybe
 import Control.Monad
 import Control.Monad.Fix
-import Control.Lens
+import Control.Monad.Trans.Maybe
+import Control.Lens hiding (contains)
 import Reflex
 import Reflex.Host.Class
+import JavaScript.Cocos2d.Node
 import JavaScript.Cocos2d.Event
 import JavaScript.Cocos2d.Schedule
 import qualified JavaScript.Cocos2d.Async as A
 import Reflex.Cocos2d.Class
+import Reflex.Cocos2d.Node
+import Linear.Affine
+import Diagrams.BoundingBox
 
 -- | Recursive data type over Event
 newtype FixEvent t f = FixEvent { unfixEvent :: f (Event t (FixEvent t f)) }
+
+data TouchEvents t = TouchEvents { _touchesBegan :: Event t [Touch]
+                                 , _touchesMoved :: Event t [Touch]
+                                 , _touchesEnded :: Event t [Touch]
+                                 , _touchesCancelled :: Event t [Touch]
+                                 }
+
+class HasTouchEvents c t | c -> t where
+    touchEvents :: Getter c (TouchEvents t)
+    touchesBegan :: Getter c (Event t [Touch])
+    touchesBegan = touchEvents . to _touchesBegan
+    touchesMoved :: Getter c (Event t [Touch])
+    touchesMoved = touchEvents . to _touchesMoved
+    touchesEnded :: Getter c (Event t [Touch])
+    touchesEnded = touchEvents . to _touchesEnded
+    touchesCancelled :: Getter c (Event t [Touch])
+    touchesCancelled = touchEvents . to _touchesCancelled
+
+instance HasTouchEvents (TouchEvents t) t where
+    touchEvents = id
 
 data UIEventType a where
     TouchesBegan :: UIEventType [Touch]
@@ -72,14 +100,17 @@ data UIEventType a where
     MouseScroll :: UIEventType MouseEvent
     KeyPressed :: UIEventType Key
     KeyReleased :: UIEventType Key
-    AccelerationChanged :: UIEventType Acceleration
+    AccelChanged :: UIEventType (Accel Double)
 
-touchesBegan, touchesEnded, touchesMoved, touchesCancelled
-    :: IndexPreservingGetter (EventSelector t UIEventType) (Event t [Touch])
-touchesBegan = to (select ?? TouchesBegan)
-touchesEnded = to (select ?? TouchesEnded)
-touchesMoved = to (select ?? TouchesMoved)
-touchesCancelled = to (select ?? TouchesCancelled)
+instance HasTouchEvents (EventSelector t UIEventType) t where
+    touchEvents = to $ TouchEvents <$> (select ?? TouchesBegan)
+                                   <*> (select ?? TouchesMoved)
+                                   <*> (select ?? TouchesEnded)
+                                   <*> (select ?? TouchesCancelled)
+    touchesBegan = to (select ?? TouchesBegan)
+    touchesEnded = to (select ?? TouchesEnded)
+    touchesMoved = to (select ?? TouchesMoved)
+    touchesCancelled = to (select ?? TouchesCancelled)
 
 mouseDown, mouseUp, mouseMove, mouseScroll
     :: IndexPreservingGetter (EventSelector t UIEventType) (Event t MouseEvent)
@@ -93,8 +124,8 @@ keyPressed, keyReleased
 keyPressed = to (select ?? KeyPressed)
 keyReleased = to (select ?? KeyReleased)
 
-accelerationChanged :: IndexPreservingGetter (EventSelector t UIEventType) (Event t Acceleration)
-accelerationChanged = to (select ?? AccelerationChanged)
+accelChanged :: IndexPreservingGetter (EventSelector t UIEventType) (Event t (Accel Double))
+accelChanged = to (select ?? AccelChanged)
 
 deriveGEq ''UIEventType
 deriveGCompare ''UIEventType
@@ -120,7 +151,10 @@ uiEvents = do
           MouseScroll -> wrap createMouseEventListener $ setOnMouseScroll ?? \m -> runWithActions [et :=> Identity m]
           KeyPressed -> wrap createKeyboardEventListener $ setOnKeyPressed ?? \k -> runWithActions [et :=> Identity k]
           KeyReleased -> wrap createKeyboardEventListener $ setOnKeyReleased ?? \k -> runWithActions [et :=> Identity k]
-          AccelerationChanged -> wrap createAccelerationEventListener $ setOnAccelerationEvent ?? \acc -> runWithActions [et :=> Identity acc]
+          AccelChanged -> do
+            (l, releaseCb) <- createAccelEventListener (\acc -> runWithActions [et :=> Identity acc])
+            addListener' l (-1)
+            return $ removeListener l >> releaseCb
     return $! e
 
 -- | Convenience function to obtain currently held keys
@@ -132,6 +166,36 @@ dynKeysDown keyPressed keyReleased = foldDynMaybe ($) S.empty $ leftmost [ ffor 
                                                                               return $ S.insert k m
                                                                          , ffor keyReleased $ fmap Just . S.delete
                                                                          ]
+
+touched :: (NodeGraph t m, IsNode n, HasSizeConfig n t) => n -> Event t [Touch] -> m (Event t Touch)
+touched node touchesBegan =
+    forHMaybe (attachDyn (node^.size) touchesBegan) $ \(sz, touches) ->
+      let box = fromCorners 0 (0.+^sz) in
+      runMaybeT . msum . ffor touches $ \t -> do
+        loc' <- convertToNodeSpace node $ t^.loc
+        guard $ box `contains` loc'
+        return t
+
+data DragPhase = DragBegan | DragMoved | DragEnded
+-- return (Event dragStart, Event dragging, Event dragEnd)
+dragged :: (NodeGraph t m, IsNode n, HasSizeConfig n t) => n -> TouchEvents t -> m (Event t Touch, Event t Touch, Event t Touch)
+dragged n tevts = do
+    dragBeganEvt <- touched n (tevts^.touchesBegan)
+    -- TODO: search across the touches instead of only taking the first one?
+    let dbegan = (DragBegan,) <$> dragBeganEvt
+        dmove = fforMaybe (tevts^.touchesMoved) $ fmap (DragMoved,) . listToMaybe
+        dend = fforMaybe (tevts^.touchesEnded) $ fmap (DragEnded,) . listToMaybe
+        touches = leftmost [ dbegan , dmove , dend ]
+    -- fold over the touches to get Event t (isBeingDragged, Position)
+    dragMovedEvt' <- mapAccumMaybe ?? False ?? touches $ \beingDragged (ph, t) ->
+        case (beingDragged, ph) of
+          (False, DragBegan) -> (True, Just (True, t))
+          (True, DragMoved) -> (True, Just (True, t))
+          (True, DragEnded) -> (False, Just (False, t))
+          _ -> (beingDragged, Nothing)
+    let dragEndedEvt = fforMaybe dragMovedEvt' $ \(beingDragged, t) -> guard (not beingDragged) >> return t
+        dragMovedEvt = fmap snd dragMovedEvt' -- TODO: should we take the head and last off?
+    return (dragBeganEvt, dragMovedEvt, dragEndedEvt)
 
 -- | Get the tick per frame
 ticks :: NodeGraph t m => m (Event t NominalDiffTime)
@@ -199,13 +263,13 @@ breakE f e = do
 -- also, increment the finished by 1 because we are not procedurally
 -- looking at how many loaded /last time/ (instead how many /already/
 -- loaded)
-load :: (NodeGraph t m, Num a) => [String] -> m (Event t (a, a), Event t ())
+load :: (NodeGraph t m) => [String] -> m (Event t (Int, Int), Event t ())
 load resources = do
     o <- A.createLoadOption
     runWithActions <- askRunWithActions
     trigger <- newEventWithTrigger $ \et ->
         A.setLoadTrigger o $ \total loaded ->
-            runWithActions [et :=> Identity (fromIntegral (loaded+1), fromIntegral total)]
+            runWithActions [et :=> Identity (loaded+1, total)]
     finished <- newEventWithTrigger $ \et ->
         A.setLoadFinish o $ runWithActions [et :=> Identity ()]
     schedulePostBuild $ A.load resources o
