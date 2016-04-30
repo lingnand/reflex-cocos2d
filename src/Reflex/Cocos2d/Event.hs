@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -75,6 +77,12 @@ data TouchEvents t = TouchEvents { _touchesBegan :: Event t [Touch]
                                  , _touchesCancelled :: Event t [Touch]
                                  }
 
+data SingleTouchEvents t = SingleTouchEvents { _touchBegan :: Event t Touch
+                                             , _touchMoved :: Event t Touch
+                                             , _touchEnded :: Event t Touch
+                                             , _touchCancelled :: Event t Touch
+                                             }
+
 class HasTouchEvents c t | c -> t where
     touchEvents :: Getter c (TouchEvents t)
     touchesBegan :: Getter c (Event t [Touch])
@@ -86,8 +94,36 @@ class HasTouchEvents c t | c -> t where
     touchesCancelled :: Getter c (Event t [Touch])
     touchesCancelled = touchEvents . to _touchesCancelled
 
+class HasSingleTouchEvents c t | c -> t where
+    singleTouchEvents :: Getter c (SingleTouchEvents t)
+    touchBegan :: Getter c (Event t Touch)
+    touchBegan = singleTouchEvents . to _touchBegan
+    touchMoved :: Getter c (Event t Touch)
+    touchMoved = singleTouchEvents . to _touchMoved
+    touchEnded :: Getter c (Event t Touch)
+    touchEnded = singleTouchEvents . to _touchEnded
+    touchCancelled :: Getter c (Event t Touch)
+    touchCancelled = singleTouchEvents . to _touchCancelled
+
+filterSingular :: Reflex t => Event t [a] -> Event t a
+filterSingular = fmapMaybe $ \case
+                  [a] -> Just a
+                  _ -> Nothing
+
+instance (Reflex t, HasTouchEvents c t) => HasSingleTouchEvents c t where
+    touchBegan = touchesBegan . to filterSingular
+    touchMoved = touchesMoved . to filterSingular
+    touchEnded = touchesEnded . to filterSingular
+    touchCancelled = touchesCancelled . to filterSingular
+    singleTouchEvents = to $ \c -> SingleTouchEvents { _touchBegan = c ^. touchBegan
+                                                     , _touchMoved = c ^. touchMoved
+                                                     , _touchEnded = c ^. touchEnded
+                                                     , _touchCancelled = c ^. touchCancelled
+                                                     }
+
 instance HasTouchEvents (TouchEvents t) t where
     touchEvents = id
+
 
 data UIEventType a where
     TouchesBegan :: UIEventType [Touch]
@@ -178,7 +214,7 @@ touched node touchesBegan =
 
 data DragPhase = DragBegan | DragMoved | DragEnded
 -- return (Event dragStart, Event dragging, Event dragEnd)
-dragged :: (NodeGraph t m, IsNode n, HasSizeConfig n t) => n -> TouchEvents t -> m (Event t Touch, Event t Touch, Event t Touch)
+dragged :: (NodeGraph t m, IsNode n, HasSizeConfig n t) => n -> SingleTouchEvents t -> m (Event t Touch, Event t Touch, Event t Touch)
 dragged n tevts = do
     dragBeganEvt <- touched n (tevts^.touchesBegan)
     -- TODO: search across the touches instead of only taking the first one?
