@@ -33,7 +33,7 @@ import Reflex.Cocos2d.Class
 appDyn :: NodeGraph t m => (a -> HostFrame t ()) -> Dynamic t a -> m ()
 appDyn setter dyn = do
     schedulePostBuild $ setter =<< sample (current dyn)
-    forH_ (updated dyn) $ setter
+    sequenceH_ . ffor (updated dyn) $ setter
 
 setV :: Monad m => (n -> a -> m ()) -> (n -> a -> m ()) -> (n -> V2 a -> m ())
 setV setX setY n (V2 x y) = setX n x >> setY n y

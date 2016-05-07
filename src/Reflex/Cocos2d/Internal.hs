@@ -1,3 +1,5 @@
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -13,6 +15,7 @@ module Reflex.Cocos2d.Internal
     ) where
 
 import Data.Dependent.Sum (DSum (..))
+import Data.Maybe
 import Data.IORef
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
@@ -76,25 +79,43 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
          , ReflexHost t ) => NodeGraph t (Graph t) where
     askParent = Graph $ view graphParent
     schedulePostBuild a = Graph $ graphPostBuild %= (a>>)
-    subGraph n (Graph c) = Graph $ local (graphParent .~ toNode n) c
-    holdGraph p child0 newChild = do
+    subG n (Graph c) = Graph $ local (graphParent .~ toNode n) c
+    holdG p child0 newChild = do
         let p' = toNode p
         vas <- Graph $ use graphVoidActions <* (graphVoidActions .= [])
-        result0 <- subGraph p' child0
+        result0 <- subG p' child0
         vas' <- Graph $ use graphVoidActions <* (graphVoidActions .= vas)
-        let voidAction0 = mergeWith (>>) vas'
+        let voidAction0 = mergeWith (flip (>>)) vas'
         (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
-        voidAction <- hold voidAction0 $ fmap snd newChildBuilt
-        performEvent_ $ switch voidAction
+        voidAction <- hold voidAction0 $ snd <$> newChildBuilt
+        sequenceH_ $ switch voidAction
         runWithActions <- askRunWithActions
-        forH_ newChild $ \(Graph g) -> do
+        sequenceH_ . ffor newChild $ \(Graph g) -> do
             removeAllChildren p'
             (r, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p' runWithActions)) (GraphState (return ()) [])
             liftIO $ readRef newChildBuiltTriggerRef
-                     >>= mapM_ (\t -> runWithActions [t :=> Identity (r, mergeWith (>>) vas)])
+                     >>= mapM_ (\t -> runWithActions [t :=> Identity (r, mergeWith (flip (>>)) vas)])
             postBuild
-        return (result0, fmap fst newChildBuilt)
-    performEvent_ a = Graph $ graphVoidActions %= (a:)
+        return (result0, fst <$> newChildBuilt)
+    sequenceG newChild = do
+        p <- askParent
+        (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
+        voidActionDyn <- foldDynMaybe ?? never ?? (snd <$> newChildBuilt) $ \vas accE -> do
+                            _ <- listToMaybe vas
+                            return $ mergeWith (flip (>>)) (accE:vas)
+        sequenceH_ $ switch (current voidActionDyn)
+        runWithActions <- askRunWithActions
+        sequenceH_ . ffor newChild $ \(Graph g) -> do
+            (r, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p runWithActions)) (GraphState (return ()) [])
+            liftIO $ readRef newChildBuiltTriggerRef
+                     >>= mapM_ (\t -> runWithActions [t :=> Identity (r, vas)])
+            postBuild
+        return $ fst <$> newChildBuilt
+    sequenceH_ a = Graph $ graphVoidActions %= (a:)
+    -- this works because it forces a nested runWithActions call which has
+    -- to be pushed pending and only fired when the current runWithActions
+    -- finishes
+    delay = mapG return
     askRunWithActions = Graph $ view graphRunWithActions
 
 -- the reason why we could do away with LOCKs and thread local storage in
@@ -137,5 +158,5 @@ mainScene (Graph g) = do
                   process dm
         GraphState postBuild vas <- execStateT (runReaderT g (GraphEnv (toNode scene) runWithActions)) (GraphState (return ()) [])
         postBuild
-        voidActionHandle <- subscribeEvent $ mergeWith (>>) vas
+        voidActionHandle <- subscribeEvent $ mergeWith (flip (>>)) vas
         runScene scene

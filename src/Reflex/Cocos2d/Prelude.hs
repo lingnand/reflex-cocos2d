@@ -9,7 +9,7 @@ module Reflex.Cocos2d.Prelude
     )
   where
 
-import Diagrams.Prelude hiding (arrow, loc, position, sample, opacity, _opacity, scale, size, flipped, Dynamic, End, text, stroke, fontSize)
+import Diagrams.Prelude hiding (arrow, loc, position, sample, opacity, _opacity, scale, size, flipped, Dynamic, End, text, stroke, fontSize, normal)
 import Diagrams.TwoD.Vector (e)
 import Diagrams.BoundingBox
 import Data.Time.Clock

@@ -17,77 +17,87 @@ import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
 
--- TODO:
--- 1. Chipmunk - active flag with Dynamic input
--- 2. Node with color support (but normal anchorPoint, no weird Layer kind)
-
 class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
       , MonadRef m, Ref m ~ Ref IO, MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
       , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
       , MonadAsyncException m, MonadAsyncException (HostFrame t)) => NodeGraph t m where
     askParent :: m Node
-    -- | Run a graph under a given node
-    subGraph :: IsNode n => n -> m a -> m a
-    -- | Run a graph with the initial content and the updated content
-    -- whenever the event updates
-    holdGraph :: IsNode n => n -> m a -> Event t (m b) -> m (a, Event t b)
     -- | Schedule an action to occur after the current cohort has been
     -- built; this is necessary because Behaviors built in the current
     -- cohort may not be read until after it is complete
     schedulePostBuild :: HostFrame t () -> m ()
-    performEvent_ :: Event t (HostFrame t ()) -> m ()
-    performEventMaybe :: NodeGraph t m => Event t (HostFrame t (Maybe a)) -> m (Event t a)
-    performEventMaybe e = do
-        runWithActions <- askRunWithActions
-        (eResult, trigger) <- newEventWithTriggerRef
-        performEvent_ . ffor e $ \o -> o >>= \case
-                Just result -> liftIO $ readRef trigger
-                                        >>= mapM_ (\t -> runWithActions [t :=> Identity result])
-                _ -> return ()
-        return eResult
-    performEvent :: NodeGraph t m => Event t (HostFrame t a) -> m (Event t a)
-    performEvent = performEventMaybe . (fmap Just <$>)
-    mapHMaybe :: (a -> HostFrame t (Maybe b)) -> Event t a -> m (Event t b)
-    mapHMaybe f = performEventMaybe . (f <$>)
-    mapH :: (a -> HostFrame t b) -> Event t a -> m (Event t b)
-    mapH f = performEventMaybe . (f' <$>)
-        where f' a = Just <$> f a
-    mapH_ :: (a -> HostFrame t b) -> Event t a -> m ()
-    mapH_ f = performEvent_ . (void . f <$>)
-    forHMaybe :: Event t a -> (a -> HostFrame t (Maybe b)) -> m (Event t b)
-    forHMaybe = flip mapHMaybe
-    forH :: Event t a -> (a -> HostFrame t b) -> m (Event t b)
-    forH = flip mapH
-    forH_ :: Event t a -> (a -> HostFrame t b) -> m ()
-    forH_ = flip mapH_
-    -- performEventAsync (we can add it if we need to)
-    -- | Return the function that allows to propagate events and execute
-    -- the action handlers
-    -- NOTE: this should NEVER be run in the main thread
     askRunWithActions :: m ([DSum (EventTrigger t) Identity] -> IO ())
+
+    -- Composition primitives
+    -- | Run a graph under a given node
+    subG :: IsNode n => n -> m a -> m a
+    -- | Run a graph with the initial content and the updated content
+    -- whenever the event updates
+    holdG :: IsNode n => n -> m a -> Event t (m b) -> m (a, Event t b)
+    -- | sequencing
+    sequenceG :: Event t (m a) -> m (Event t a)
+    sequenceG_ :: Event t (m a) -> m ()
+    sequenceG_ = void . sequenceG
+    -- lower in power (no construction power, but performance-wise better)
+    -- this is mostly used inside the library to improve performance
+    sequenceH_ :: Event t (HostFrame t ()) -> m ()
+    -- misc operations
+    -- | Generate a new Event that delays the input Event by some frame
+    -- (normally fired in the immediate next frame); similar to
+    -- setTimeout(0)
+    delay :: Event t a -> m (Event t a)
+
+-- Mappings
+-- | HostFrame mappings
+sequenceGMaybe :: NodeGraph t m => Event t (m (Maybe a)) -> m (Event t a)
+sequenceGMaybe = return . fmapMaybe id <=< sequenceG
+
+mapGMaybe :: NodeGraph t m => (a -> m (Maybe b)) -> Event t a -> m (Event t b)
+mapGMaybe f = sequenceGMaybe . (f <$>)
+
+mapG :: NodeGraph t m => (a -> m b) -> Event t a -> m (Event t b)
+mapG f = sequenceG . (f <$>)
+
+mapG_ :: NodeGraph t m => (a -> m b) -> Event t a -> m ()
+mapG_ f = sequenceG_ . (f <$>)
+
+forGMaybe :: NodeGraph t m => Event t a -> (a -> m (Maybe b)) -> m (Event t b)
+forGMaybe = flip mapGMaybe
+
+forG :: NodeGraph t m => Event t a -> (a -> m b) -> m (Event t b)
+forG = flip mapG
+
+forG_ :: NodeGraph t m => Event t a -> (a -> m b) -> m ()
+forG_ = flip mapG_
+
+filterG :: NodeGraph t m => (a -> m Bool) -> Event t a -> m (Event t a)
+filterG f = mapGMaybe $ \a -> do
+  valid <- f a
+  return $ guard valid >> return a
+
 
 -- * Compositions
 -- | Embed
--- e.g., @nodeBuilder |< child@
+-- e.g., @nodeBuilder -< child@
 infixr 2 -<
 (-<) :: (NodeGraph t m, IsNode n) => m n -> m a -> m (n, a)
 node -< child = do
     n <- node
-    a <- subGraph n child
+    a <- subG n child
     return (n, a)
 
 -- | Hold
--- e.g., @newChild & nodeBuilder |- child0@
+-- e.g., @newChild & nodeBuilder -| child0@
 infixr 2 -|
 (-|) :: (NodeGraph t m, IsNode n) => m n -> m a -> Event t (m a) -> m (n, Dynamic t a)
 (-|) node child0 newChild = do
     n <- node
-    (result0, newResult) <- holdGraph n child0 newChild
+    (result0, newResult) <- holdG n child0 newChild
     dyn <- holdDyn result0 newResult
     return (n, dyn)
 
 -- | View
--- e.g., @nodeBuilder |= child@
+-- e.g., @nodeBuilder =| child@
 infixr 2 =|
 (=|) :: (NodeGraph t m, IsNode n) => m n -> Dynamic t (m a) -> m (n, Event t a)
 node =| child = do
@@ -96,5 +106,5 @@ node =| child = do
     runWithActions <- askRunWithActions
     schedulePostBuild . liftIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> Identity ()])
     let newChild = leftmost [updated child, tag (current child) e]
-    (_, evt) <- holdGraph n (return ()) newChild
+    (_, evt) <- holdG n (return ()) newChild
     return (n, evt)

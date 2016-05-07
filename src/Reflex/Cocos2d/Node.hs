@@ -36,7 +36,9 @@ module Reflex.Cocos2d.Node
     ) where
 
 import Data.Default
+import Data.Dependent.Sum (DSum (..))
 import Control.Monad
+import Control.Monad.Ref
 import Control.Lens hiding (flipped)
 import Diagrams hiding (size)
 import Reflex
@@ -44,8 +46,10 @@ import JavaScript.Cocos2d.Node
 import JavaScript.Cocos2d.Layer
 import JavaScript.Cocos2d.Sprite
 import Reflex.Trans
+import Reflex.Host.Class
 import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Utils
+import Control.Monad.IO.Class
 
 -- * Node
 data NodeConfig t = NodeConfig { _nToBaseConfig :: BaseConfig t
@@ -276,13 +280,16 @@ instance Reflex t => Default (SpriteConfig t) where
                        }
 
 
-data DynSprite t = DynSprite (SpriteConfig t) Sprite
+data DynSprite t = DynSprite (SpriteConfig t) (SizeConfig t) Sprite
 
 instance HasSpriteConfig (DynSprite t) t where
-    spriteConfig f (DynSprite c s) = (\c' -> DynSprite c' s) <$> f c
+    spriteConfig f (DynSprite c sz s) = (\c' -> DynSprite c' sz s) <$> f c
 
 instance HasBaseConfig (DynSprite t) t where
     baseConfig = spriteConfig . sToBaseConfig
+
+instance HasSizeConfig (DynSprite t) t where
+    sizeConfig f (DynSprite c sz s) = (\sz' -> DynSprite c sz' s) <$> f sz
 
 instance HasTrans (DynSprite t) t where
     trans = spriteConfig . trans
@@ -291,10 +298,10 @@ instance HasColorConfig (DynSprite t) t where
     colorConfig = spriteConfig . sToColorConfig
 
 instance IsNode (DynSprite t) where
-    toNode (DynSprite _ s) = toNode s
+    toNode (DynSprite _ _ s) = toNode s
 
 instance IsSprite (DynSprite t) where
-    toSprite (DynSprite _ s) = s
+    toSprite (DynSprite _ _ s) = s
 
 sprite :: NodeGraph t m => SpriteConfig t -> m (DynSprite t)
 sprite conf = do
@@ -302,11 +309,26 @@ sprite conf = do
     appBaseConfig conf s
     appColorConfig conf s
     appDyn (setV setFlippedX setFlippedY s) (conf^.flipped)
+    (sizeE, sizeTr) <- newEventWithTriggerRef
     let setSprite [] = return ()
         setSprite name = setSpriteByName s name
-    appDyn setSprite (conf^.spriteName)
+        getSz :: MonadIO m => m (V2 Double)
+        getSz = V2 <$> getWidth s <*> getHeight s
+    runWithActions <- askRunWithActions
+    appDyn ?? conf^.spriteName $ \name -> liftIO $ do
+      mTr <- readRef sizeTr
+      case mTr of
+        Just t -> do
+          oldSz <- getSz
+          setSprite name
+          newSz <- getSz
+          if newSz /= oldSz then runWithActions [t :=> Identity newSz]
+                            else return ()
+        _ -> setSprite name
+    sz <- getSz
+    sizeD <- holdDyn sz sizeE
     askParent >>= flip addChild s
-    return $ DynSprite conf s
+    return $ DynSprite conf (SizeConfig sizeD) s
 
 sprite_ :: NodeGraph t m => SpriteConfig t -> m ()
 sprite_ = void . sprite

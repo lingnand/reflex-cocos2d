@@ -81,7 +81,6 @@ library
                        lens,
                        time,
                        data-default,
-                       thread-local-storage,
                        ghcjs-base,
                        ghcjs-cocos2d
   

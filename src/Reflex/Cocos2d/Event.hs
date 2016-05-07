@@ -1,3 +1,4 @@
+{-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
@@ -13,7 +14,12 @@ module Reflex.Cocos2d.Event
     -- ** Convenience Lens Getters
     , TouchEvents(TouchEvents)
     , HasTouchEvents(..)
-    , touched
+    , SingleTouchEvents(SingleTouchEvents)
+    , HasSingleTouchEvents(..)
+    , DragEvent
+    , dragBegan
+    , dragMoved
+    , dragEnded
     , dragged
     , mouseDown
     , mouseUp
@@ -29,6 +35,7 @@ module Reflex.Cocos2d.Event
     -- * Async
     , load
     -- * Utility
+    , nodeContains
     , mapAccumMaybe
     , mapAccum
     , accum
@@ -48,14 +55,15 @@ module Reflex.Cocos2d.Event
     , time
     ) where
 
+import Diagrams (P2)
+import Diagrams.BoundingBox
 import Data.Time.Clock
 import qualified Data.Set as S
 import Data.Dependent.Sum (DSum (..))
 import Data.GADT.Compare.TH
-import Data.Maybe
 import Control.Monad
 import Control.Monad.Fix
-import Control.Monad.Trans.Maybe
+import Control.Monad.IO.Class
 import Control.Lens hiding (contains)
 import Reflex
 import Reflex.Host.Class
@@ -66,7 +74,6 @@ import qualified JavaScript.Cocos2d.Async as A
 import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Node
 import Linear.Affine
-import Diagrams.BoundingBox
 
 -- | Recursive data type over Event
 newtype FixEvent t f = FixEvent { unfixEvent :: f (Event t (FixEvent t f)) }
@@ -203,35 +210,32 @@ dynKeysDown keyPressed keyReleased = foldDynMaybe ($) S.empty $ leftmost [ ffor 
                                                                          , ffor keyReleased $ fmap Just . S.delete
                                                                          ]
 
-touched :: (NodeGraph t m, IsNode n, HasSizeConfig n t) => n -> Event t [Touch] -> m (Event t Touch)
-touched node touchesBegan =
-    forHMaybe (attachDyn (node^.size) touchesBegan) $ \(sz, touches) ->
-      let box = fromCorners 0 (0.+^sz) in
-      runMaybeT . msum . ffor touches $ \t -> do
-        loc' <- convertToNodeSpace node $ t^.loc
-        guard $ box `contains` loc'
-        return t
+nodeContains :: (MonadIO m, MonadSample t m, IsNode n, HasSizeConfig n t) => n -> (P2 Double) -> m Bool
+nodeContains n p = do
+    sz <- sample (current $ n^.size)
+    p' <- convertToNodeSpace n p
+    return $ fromCorners 0 (0.+^sz) `contains` p'
 
-data DragPhase = DragBegan | DragMoved | DragEnded
--- return (Event dragStart, Event dragging, Event dragEnd)
-dragged :: (NodeGraph t m, IsNode n, HasSizeConfig n t) => n -> SingleTouchEvents t -> m (Event t Touch, Event t Touch, Event t Touch)
-dragged n tevts = do
-    dragBeganEvt <- touched n (tevts^.touchesBegan)
-    -- TODO: search across the touches instead of only taking the first one?
-    let dbegan = (DragBegan,) <$> dragBeganEvt
-        dmove = fforMaybe (tevts^.touchesMoved) $ fmap (DragMoved,) . listToMaybe
-        dend = fforMaybe (tevts^.touchesEnded) $ fmap (DragEnded,) . listToMaybe
-        touches = leftmost [ dbegan , dmove , dend ]
-    -- fold over the touches to get Event t (isBeingDragged, Position)
-    dragMovedEvt' <- mapAccumMaybe ?? False ?? touches $ \beingDragged (ph, t) ->
-        case (beingDragged, ph) of
-          (False, DragBegan) -> (True, Just (True, t))
-          (True, DragMoved) -> (True, Just (True, t))
-          (True, DragEnded) -> (False, Just (False, t))
-          _ -> (beingDragged, Nothing)
-    let dragEndedEvt = fforMaybe dragMovedEvt' $ \(beingDragged, t) -> guard (not beingDragged) >> return t
-        dragMovedEvt = fmap snd dragMovedEvt' -- TODO: should we take the head and last off?
-    return (dragBeganEvt, dragMovedEvt, dragEndedEvt)
+-- a datatype representing the necessary information regarding a drag event
+data DragEvent t = DragEvent { _dragBegan :: Touch
+                             , _dragMoved :: Event t Touch
+                             , _dragEnded :: Event t Touch
+                             }
+makeLenses ''DragEvent
+
+-- return Event (dragStart, Event dragging, Event dragEnd)
+dragged :: NodeGraph t m => SingleTouchEvents t -> m (Event t (DragEvent t))
+dragged (SingleTouchEvents began moved ended _) = do
+    let mstream = leftmost [ (True,) <$> moved
+                           , (False,) <$> ended
+                           ]
+    rec e' <- forG began $ \t -> do
+          (ms, _) <- sample b'
+          (movedSeg, ms') <- breakE fst ms
+          (endedSeg, ms'') <- headTailE ms'
+          return (ms'', Just $ DragEvent t (snd <$> movedSeg) (snd <$> endedSeg))
+        b' <- hold (mstream, Nothing) e'
+    return $ fmapMaybe snd e'
 
 -- | Get the tick per frame
 ticks :: NodeGraph t m => m (Event t NominalDiffTime)
