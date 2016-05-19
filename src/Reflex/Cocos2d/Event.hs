@@ -8,9 +8,8 @@
 {-# LANGUAGE GADTs #-}
 module Reflex.Cocos2d.Event
     (
-      FixEvent(..)
     -- * UI Events
-    , UIEventType
+      UIEventType
     -- ** Convenience Lens Getters
     , TouchEvents(TouchEvents)
     , HasTouchEvents(..)
@@ -32,17 +31,22 @@ module Reflex.Cocos2d.Event
     , dynKeysDown
     -- * Time
     , ticks
+    , dilate
+    -- , ticks'
+    , delay'
     -- * Async
     , load
+    -- * Rand
+    , picks
     -- * Utility
     , nodeContains
     , mapAccumMaybe
     , mapAccum
     , accum
-    , dilate
     , takeWhileE
     , dropWhileE
     , breakE
+    , stack
     -- * re-export the lower level
     , Touch(..)
     , loc
@@ -61,10 +65,13 @@ import Data.Time.Clock
 import qualified Data.Set as S
 import Data.Dependent.Sum (DSum (..))
 import Data.GADT.Compare.TH
+import Data.Maybe
+import Control.Applicative
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
 import Control.Lens hiding (contains)
+import Math.Probable hiding (Event, never)
 import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
@@ -74,9 +81,7 @@ import qualified JavaScript.Cocos2d.Async as A
 import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Node
 import Linear.Affine
-
--- | Recursive data type over Event
-newtype FixEvent t f = FixEvent { unfixEvent :: f (Event t (FixEvent t f)) }
+import Control.Monad.Ref
 
 data TouchEvents t = TouchEvents { _touchesBegan :: Event t [Touch]
                                  , _touchesMoved :: Event t [Touch]
@@ -237,12 +242,43 @@ dragged (SingleTouchEvents began moved ended _) = do
         b' <- hold (mstream, Nothing) e'
     return $ fmapMaybe snd e'
 
+-- | Modulate a ticker
+dilate :: (Reflex t, MonadHold t m, MonadFix m, Num a, Ord a) => a -> Event t a -> m (Event t a)
+dilate limit = flip mapAccumMaybe (0, limit) $ \(acc, l) d ->
+                    let sum = acc + d in
+                    if sum > l then ((0, limit-(sum-l)), Just sum)
+                               else ((sum, l), Nothing)
+
 -- | Get the tick per frame
 ticks :: NodeGraph t m => m (Event t NominalDiffTime)
 ticks = do
     runWithActions <- askRunWithActions
     newEventWithTrigger $ \et ->
         scheduleUpdate 0 $ \d -> runWithActions [et :=> Identity d]
+
+-- ticks' :: NodeGraph t m => NominalDiffTime -> m (Event t NominalDiffTime)
+-- ticks' interval = do
+--     runWithActions <- askRunWithActions
+--     newEventWithTrigger $ \et ->
+--         scheduleUpdate' interval True $ \d -> runWithActions [et :=> Identity d]
+
+-- | Sample a value out of each RandT on each new event
+picks :: NodeGraph t m => Event t (RandT m a) -> RandT m (Event t a)
+picks evt = RandT $ \g -> forG evt $ \rt -> runRandT rt g
+
+-- | Delay an Event by the given amount of time
+delay' :: NodeGraph t m => NominalDiffTime -> Event t a -> m (Event t a)
+delay' dt e = do
+    runWithActions <- askRunWithActions
+    (e', trigger) <- newEventWithTriggerRef
+    sequenceH_ . ffor e $ \a -> mdo
+      -- ignoring the tear-down function for now
+      release <- scheduleUpdate' dt False $ \_ -> do
+        readRef trigger >>= mapM_ (\t -> runWithActions [t :=> Identity a])
+        -- after finished with the update, release directly
+        release
+      return ()
+    return e'
 
 mapAccumMaybe :: (Reflex t, MonadHold t m, MonadFix m) => (a -> b -> (a, Maybe c)) -> a -> Event t b -> m (Event t c)
 mapAccumMaybe f z e = do
@@ -255,20 +291,13 @@ mapAccum f = mapAccumMaybe $ \a b -> let (a', c) = f a b in (a', Just c)
 accum :: (Reflex t, MonadHold t m, MonadFix m) => (a -> b -> a) -> a -> Event t b -> m (Event t (a, b))
 accum f = mapAccum $ \a b -> let a' = f a b in (a', (a', b))
 
--- | Modulate a ticker
-dilate :: (Reflex t, MonadHold t m, MonadFix m, Num a, Ord a) => a -> Event t a -> m (Event t a)
-dilate limit = flip mapAccumMaybe (0, limit) $ \(acc, l) d ->
-                    let sum = acc + d in
-                    if sum > l then ((0, limit-(sum-l)), Just sum)
-                               else ((sum, l), Nothing)
-
 -- | Efficiently cut off a stream of events at a point
 takeWhileE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m (Event t a)
 takeWhileE f e = do
     let gateE = fforMaybe e $ \a -> guard (not $ f a) >> return False
     gateDyn <- holdDyn True gateE
     let e' = attachDynWithMaybe (\g a -> guard g >> return a) gateDyn e
-    return . switch =<< hold e' =<< headE (const never <$> gateE)
+    return . switch =<< hold e' =<< headE (never <$ gateE)
 
 -- | Efficiently cut off a stream of events at a point
 dropWhileE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m (Event t a)
@@ -276,26 +305,40 @@ dropWhileE f e = do
     let e' = fforMaybe e $ \a -> guard (not $ f a) >> return e
     switchPromptly never =<< headE e'
 
--- | split an Event into two parts on a condition
+-- | Split an Event into two parts on a condition
 breakE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m (Event t a, Event t a)
 breakE f e = do
     let gateE = fforMaybe e $ \a -> guard (not $ f a) >> return False
     gateDyn <- holdDyn True gateE
     let e' = attachDynWithMaybe (\g a -> guard g >> return a) gateDyn e
     gateE' <- headE gateE
-    bef <- switch <$> hold e' (const never <$> gateE')
-    aft <- switchPromptly never (const e <$> gateE')
+    bef <- switch <$> hold e' (never <$ gateE')
+    aft <- switchPromptly never (e <$ gateE')
     return (bef, aft)
 
+-- | Simple stack that responds to Events
+stack :: (Reflex t, MonadHold t m, MonadFix m)
+      => Event t (a -> b) -- ^ the request Event for taking items out / popping
+      -> [a] -- ^ the initial state
+      -> Event t a -- ^ the input states
+      -> m (Dynamic t [a], Event t (Maybe b)) -- ^ (stack Dynamic, the output Event)
+stack reqs z input = do
+    rec let e = mergeWith (\f1 f2 a -> let (a', e1)  = f1 a
+                                           (a'', e2) = f2 (fromMaybe a a')
+                                       in (a'' <|> a', e2 <|> e1)
+                          )
+                [ (\i a -> (Just (i:a), Nothing)) <$> input
+                , ffor reqs $ \f -> \case
+                    [] -> (Nothing, Just Nothing) -- if there is nothing to take out, we get Nothing
+                    (a:as) -> (Just as, Just . Just $ f a)
+                ]
+            e' = push ?? e $ \f -> do
+                      a <- sample b'
+                      return . Just $ f a
+            se' = fmapMaybe fst e'
+        b' <- hold z se'
+    return (unsafeDynamic b' se', fmapMaybe snd e')
 
--- | split an Event into two parts by counting the numbers
--- splitE ::
-
--- takeE
---
--- dropE
---
---
 
 -- | Load a list of resources in an async manner
 -- returns (Event t (loaded, total), finished)

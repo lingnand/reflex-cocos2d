@@ -81,6 +81,9 @@ library
                        lens,
                        time,
                        data-default,
+                       primitive,
+                       probable,
+                       free,
                        ghcjs-base,
                        ghcjs-cocos2d
   

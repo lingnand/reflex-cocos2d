@@ -24,6 +24,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Exception
+import Control.Monad.Primitive
 import Control.Lens
 import Reflex
 import Reflex.Host.Class
@@ -73,6 +74,10 @@ instance MonadRef (HostFrame t) => MonadRef (Graph t) where
     newRef = Graph . lift . lift . newRef
     readRef = Graph . lift . lift . readRef
     writeRef r = Graph . lift . lift . writeRef r
+
+instance MonadIO (Graph t) => PrimMonad (Graph t) where
+    type PrimState (Graph t) = RealWorld
+    primitive = liftIO . primitive
 
 instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (HostFrame t)
          , MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO

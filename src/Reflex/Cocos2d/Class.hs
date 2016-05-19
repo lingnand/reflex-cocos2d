@@ -1,3 +1,4 @@
+{-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
@@ -13,6 +14,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Exception
+import Control.Monad.Trans.Free
 import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
@@ -79,9 +81,9 @@ filterG f = mapGMaybe $ \a -> do
 -- * Compositions
 -- | Embed
 -- e.g., @nodeBuilder -< child@
-infixr 2 -<
-(-<) :: (NodeGraph t m, IsNode n) => m n -> m a -> m (n, a)
-node -< child = do
+infixr 2 =|
+(=|) :: (NodeGraph t m, IsNode n) => m n -> m a -> m (n, a)
+(=|) node child = do
     n <- node
     a <- subG n child
     return (n, a)
@@ -96,11 +98,22 @@ infixr 2 -|
     dyn <- holdDyn result0 newResult
     return (n, dyn)
 
+-- | Recursive hold
+infixr 2 -<<
+(-<<) :: (NodeGraph t m, IsNode n) => m n -> FreeT (Event t) m a -> m n
+(-<<) node ft = mdo
+    let toMEvt (FreeT mf) = mf >>= \case
+              Pure _ -> return never
+              Free k -> return k
+        newChild = toMEvt <$> switchPromptlyDyn dyns
+    (n, dyns) <- node -| toMEvt ft $ newChild
+    return n
+
 -- | View
 -- e.g., @nodeBuilder =| child@
-infixr 2 =|
-(=|) :: (NodeGraph t m, IsNode n) => m n -> Dynamic t (m a) -> m (n, Event t a)
-node =| child = do
+infixr 2 -<
+(-<) :: (NodeGraph t m, IsNode n) => m n -> Dynamic t (m a) -> m (n, Event t a)
+(-<) node child = do
     n <- node
     (e, trigger) <- newEventWithTriggerRef
     runWithActions <- askRunWithActions

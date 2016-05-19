@@ -20,6 +20,7 @@ module Reflex.Cocos2d.Utils
   where
 
 import Data.Colour
+import Data.Colour.Names
 import Data.Default
 import Diagrams hiding (sample, opacity, _opacity, scale, size)
 import Control.Lens hiding (contains)
@@ -71,7 +72,7 @@ newtype ColorConfig t = ColorConfig { _color :: Dynamic t (Colour Double) }
 makeClassy ''ColorConfig
 
 instance Reflex t => Default (ColorConfig t) where
-    def = ColorConfig { _color = constDyn black }
+    def = ColorConfig { _color = constDyn white }
 
 newtype SizeConfig t = SizeConfig { _size :: Dynamic t (V2 Double) }
 makeClassy ''SizeConfig

@@ -10,7 +10,6 @@ module Reflex.Cocos2d.Node
       NodeConfig
     , LayerConfig
     , LayerColorConfig
-    , HasTrans(..)
     , HasBaseConfig(..)
     , HasSizeConfig(..)
     , HasColorConfig(..)
@@ -36,6 +35,7 @@ module Reflex.Cocos2d.Node
     ) where
 
 import Data.Default
+import Data.Colour.Names
 import Data.Dependent.Sum (DSum (..))
 import Control.Monad
 import Control.Monad.Ref
@@ -95,6 +95,9 @@ instance HasSizeConfig (DynNode t) t where
 
 instance IsNode (DynNode t) where
     toNode (DynNode _ n) = n
+
+instance Eq (DynNode t) where
+    (DynNode _ n) == (DynNode _ n') = n == n'
 
 node :: NodeGraph t m => NodeConfig t -> m (DynNode t)
 node conf = do
@@ -160,6 +163,9 @@ instance IsNode (DynLayer t) where
 instance IsLayer (DynLayer t) where
     toLayer (DynLayer _ l) = l
 
+instance Eq (DynLayer t) where
+    (DynLayer _ n) == (DynLayer _ n') = n == n'
+
 layer :: NodeGraph t m => LayerConfig t -> m (DynLayer t)
 layer conf = do
     l <- createLayer
@@ -202,7 +208,7 @@ instance HasSizeConfig (LayerColorConfig t) t where
     sizeConfig = layerConfig . sizeConfig
 
 instance Reflex t => Default (LayerColorConfig t) where
-    def = LayerColorConfig def def
+    def = LayerColorConfig def (ColorConfig $ constDyn black)
 
 
 data DynLayerColor t = DynLayerColor (LayerColorConfig t) LayerColor
@@ -233,6 +239,9 @@ instance IsNode (DynLayerColor t) where
 
 instance IsLayer (DynLayerColor t) where
     toLayer (DynLayerColor _ l) = toLayer l
+
+instance Eq (DynLayerColor t) where
+    (DynLayerColor _ n) == (DynLayerColor _ n') = n == n'
 
 layerColor :: NodeGraph t m => LayerColorConfig t -> m (DynLayerColor t)
 layerColor conf = do
@@ -302,6 +311,9 @@ instance IsNode (DynSprite t) where
 
 instance IsSprite (DynSprite t) where
     toSprite (DynSprite _ _ s) = s
+
+instance Eq (DynSprite t) where
+    (DynSprite _ _ n) == (DynSprite _ _ n') = n == n'
 
 sprite :: NodeGraph t m => SpriteConfig t -> m (DynSprite t)
 sprite conf = do

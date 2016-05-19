@@ -38,7 +38,7 @@ module Reflex.Cocos2d.Chipmunk
 
     , ContactPoint
     , contact
-    , normal
+    , contactNormal
     , depth
 
     , CollisionEvents
@@ -286,7 +286,7 @@ space ts conf = do
 
 -- collision handling
 data ContactPoint = ContactPoint { _contact :: P2 Double
-                                 , _normal :: V2 Double
+                                 , _contactNormal :: V2 Double
                                  , _depth :: Double
                                  } deriving (Show, Read)
 makeLenses ''ContactPoint

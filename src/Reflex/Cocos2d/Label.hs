@@ -28,6 +28,7 @@ import Control.Lens
 import JavaScript.Cocos2d.Node
 import JavaScript.Cocos2d.Label
 import Reflex
+import Reflex.Trans
 import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Node
 import Reflex.Cocos2d.Utils
