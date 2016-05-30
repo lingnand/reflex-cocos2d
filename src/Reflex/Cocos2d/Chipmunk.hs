@@ -1,3 +1,6 @@
+{-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -10,6 +13,8 @@ module Reflex.Cocos2d.Chipmunk
 
     , Body
     , IsBody(..)
+    , DynamicBody
+    , IsDynamicBody(..)
 
     , Shape(..)
 
@@ -19,22 +24,6 @@ module Reflex.Cocos2d.Chipmunk
     , sensor
     , CollisionCoefficients
     , HasCollisionCoefficients(..)
-
-    , StaticBodyConfig
-    , HasStaticBodyConfig(..)
-
-    , DynamicBodyConfig
-    , bodyVel
-    , setBodyVel
-    , bodyAngularVel
-    , setBodyAngularVel
-    , active
-    , setActive
-    , force
-    , impulse
-
-    , SpaceConfig
-    , HasSpaceConfig(..)
 
     , ContactPoint
     , contact
@@ -48,6 +37,7 @@ module Reflex.Cocos2d.Chipmunk
     , surfaceVel
     , otherBody
     , otherCollisionType
+    , thisCollisionType
     , contactPoints
 
     , Step
@@ -58,18 +48,31 @@ module Reflex.Cocos2d.Chipmunk
     , space
 
     , DynBody
+    , bodyPos
+    , bodyRot
 
     , staticBody
     , dynamicBody
+
+    -- attrs --
+    , iterations
+    , gravity
+    , collisionType
+    , vel
+    , angularVel
+    , active
+    , force
+    , impulse
     )
   where
 
+import Linear
 import Diagrams hiding (normal)
 import Data.List
 import Data.Default
 import Data.Time.Clock
 import Data.Dependent.Sum (DSum (..))
-import Control.Lens
+import Control.Lens hiding (set)
 import Control.Monad
 import Control.Monad.IO.Class
 import GHCJS.Marshal
@@ -77,8 +80,8 @@ import GHCJS.Types
 import GHCJS.Foreign.Callback
 import Reflex
 import Reflex.Host.Class
-import Reflex.Trans
-import Reflex.Cocos2d.Utils
+import Reflex.Cocos2d.Attributes
+import Reflex.Cocos2d.Node
 import Reflex.Cocos2d.Class
 
 -- public types
@@ -87,6 +90,7 @@ class IsSpace a where
     toSpace :: a -> Space
 
 newtype Body = Body JSVal
+
 class IsBody a where
     toBody :: a -> Body
 
@@ -94,7 +98,21 @@ instance IsBody Body where
     toBody = id
 
 instance Eq Body where
-    (==) = cp_eq
+    Body a == Body b = a `js_eq` b
+
+newtype DynamicBody = DynamicBody JSVal
+
+class IsBody a => IsDynamicBody a where
+    toDynamicBody :: a -> DynamicBody
+
+instance IsDynamicBody DynamicBody where
+    toDynamicBody = id
+
+instance IsBody DynamicBody where
+    toBody (DynamicBody v) = Body v
+
+instance Eq DynamicBody where
+    DynamicBody a == DynamicBody b = a `js_eq` b
 
 -- private types
 newtype CPShape = CPShape JSVal
@@ -103,7 +121,9 @@ newtype CPVec = CPVec JSVal
 ---- Space ----
 foreign import javascript unsafe "new cp.Space()" cp_createSpace :: IO Space
 foreign import javascript unsafe "$1.setIterations($2)" cp_setIterations :: Space -> Int -> IO ()
+foreign import javascript unsafe "$1.iterations" cp_getIterations :: Space -> IO Int
 foreign import javascript unsafe "$1.gravity = $2" cp_setGravity :: Space -> CPVec -> IO ()
+foreign import javascript unsafe "$1.gravity" cp_getGravity :: Space -> IO CPVec
 -- time is in seconds; step the world and run all the trigger functions on all bodies
 -- THIS ASSUMES that each body has its userdata set to a trigger function
 foreign import javascript unsafe "$1.step($2)" cp_step :: Space -> Double -> IO ()
@@ -125,20 +145,25 @@ foreign import javascript unsafe "$1.dist" cp_getDist :: JSVal -> IO Double
 -- mass, moment
 foreign import javascript unsafe "new cp.Body($1, $2)" cp_createBody :: Double -> Double -> IO Body
 foreign import javascript unsafe "$1.setPos($2)" cp_setPos :: Body -> CPVec -> IO ()
-foreign import javascript unsafe "$1.setVel($2)" cp_setVel :: Body -> CPVec -> IO ()
+foreign import javascript unsafe "$1.setVel($2)" cp_setVel :: DynamicBody -> CPVec -> IO ()
+foreign import javascript unsafe "$1.getVel()" cp_getVel :: DynamicBody -> IO CPVec
 foreign import javascript unsafe "$1.setAngle($2)" cp_setAngle :: Body -> Double -> IO ()
-foreign import javascript unsafe "$1.setAngVel($2)" cp_setAngVel :: Body -> Double -> IO ()
-foreign import javascript unsafe "$1.applyForce($2, $3)" cp_applyForce :: Body -> CPVec -> CPVec -> IO ()
-foreign import javascript unsafe "$1.applyImpulse($2, $3)" cp_applyImpulse :: Body -> CPVec -> CPVec -> IO ()
-foreign import javascript unsafe "$1.activate()" cp_activate :: Body -> IO ()
-foreign import javascript unsafe "$1.sleep()" cp_sleep :: Body -> IO ()
-foreign import javascript unsafe "$1.data = { collisionType:0, began:null, postSolve:null, separate:null }" cp_addCollisionData :: Body -> IO ()
+foreign import javascript unsafe "$1.setAngVel($2)" cp_setAngVel :: DynamicBody -> Double -> IO ()
+foreign import javascript unsafe "$1.getAngVel()" cp_getAngVel :: DynamicBody -> IO Double
+foreign import javascript unsafe "$1.applyForce($2, $3)" cp_applyForce :: DynamicBody -> CPVec -> CPVec -> IO ()
+foreign import javascript unsafe "$1.applyImpulse($2, $3)" cp_applyImpulse :: DynamicBody -> CPVec -> CPVec -> IO ()
+foreign import javascript unsafe "$1.activate()" cp_activate :: DynamicBody -> IO ()
+foreign import javascript unsafe "$1.sleep()" cp_sleep :: DynamicBody -> IO ()
+foreign import javascript unsafe "$1.data = { space:$2, collisionType:0, began:null, postSolve:null, separate:null }" cp_setupData :: Body -> Space -> IO ()
 foreign import javascript unsafe "$1.data.collisionType = $2" cp_setCollisionType :: Body -> Int -> IO ()
+foreign import javascript unsafe "$1.data.collisionType" cp_getCollisionType :: Body -> IO Int
 foreign import javascript unsafe "$1.data.began = $2" cp_setCollisionBegan :: Body -> Callback a -> IO ()
 foreign import javascript unsafe "$1.data.postSolve = $2" cp_setCollisionPostSolve :: Body -> Callback a -> IO ()
 foreign import javascript unsafe "$1.data.separate = $2" cp_setCollisionSeparate :: Body -> Callback a -> IO ()
-foreign import javascript unsafe "if (!$2.space) { if ($1.isLocked()) { $1.addPostStepCallback(function() { $1.addBody($2); }); } else {  $1.addBody($2); } }" cp_smartAdd :: Space -> Body -> IO ()
-foreign import javascript unsafe "if ($2.space) { if ($1.isLocked()) { $1.addPostStepCallback(function() { $1.removeBody($2); }); } else {  $1.removeBody($2); } }" cp_smartRemove :: Space -> Body -> IO ()
+foreign import javascript unsafe "$1.isRogue()" cp_isRogue :: DynamicBody -> IO Bool
+foreign import javascript unsafe "$1.data.space" cp_getSpaceFromData :: DynamicBody -> IO Space
+foreign import javascript unsafe "if (!$2.space) { if ($1.isLocked()) { $1.addPostStepCallback(function() { $1.addBody($2); }); } else {  $1.addBody($2); } }" cp_smartAdd :: Space -> DynamicBody -> IO ()
+foreign import javascript unsafe "if ($2.space) { if ($1.isLocked()) { $1.addPostStepCallback(function() { $1.removeBody($2); }); } else {  $1.removeBody($2); } }" cp_smartRemove :: Space -> DynamicBody -> IO ()
 -- get body realtime info
 foreign import javascript unsafe "$1.p" cp_getPos :: Body -> IO CPVec
 foreign import javascript unsafe "$1.a" cp_getAngle :: Body -> IO Double
@@ -155,7 +180,7 @@ foreign import javascript unsafe "$1.setFriction($2)" cp_setFriction :: CPShape 
 foreign import javascript unsafe "$1.setSensor($2)" cp_setSensor :: CPShape -> Bool -> IO ()
 
 ---- Misc ----
-foreign import javascript unsafe "$1===$2" cp_eq :: Body -> Body -> Bool
+foreign import javascript unsafe "$1===$2" js_eq :: JSVal -> JSVal -> Bool
 foreign import javascript unsafe "cp.v($1, $2)" cp_v :: Double -> Double -> IO CPVec
 foreign import javascript unsafe "$1.x" cp_getX :: CPVec -> IO Double
 foreign import javascript unsafe "$1.y" cp_getY :: CPVec -> IO Double
@@ -167,8 +192,8 @@ foreign import javascript unsafe "cp.momentForPoly($1, $2, cp.vzero)" cp_momentF
 r2ToCPVec :: R2 t => t Double -> IO CPVec
 r2ToCPVec p = cp_v (p^._x) (p^._y)
 
-unCPVec :: CPVec -> IO (Double, Double)
-unCPVec v = (,) <$> cp_getX v <*> cp_getY v
+cpVecToR2 :: (PrevDim c ~ Double, FinalCoord c ~ Double, Coordinates c) => CPVec -> IO c
+cpVecToR2 v = (^&) <$> cp_getX v <*> cp_getY v
 
 data Shape = Circle Double (P2 Double)
            | Segment Double (P2 Double) (P2 Double)
@@ -204,65 +229,6 @@ instance Default Fixture where
 
 -- due to the confusion between static & rogue bodies, we decide to use
 -- rogue bodies for all static bodies (and call them *static* bodies)
-data StaticBodyConfig t a = StaticBodyConfig { _bodyPos :: P2 Double
-                                             , _setBodyPos :: Event t (P2 Double)
-                                             , _bodyRot :: Direction V2 Double
-                                             , _setBodyRot :: Event t (Direction V2 Double)
-                                             , _collisionType :: a
-                                             , _setCollisionType :: Event t a
-                                             , _fixtures :: [Fixture]
-                                             }
-makeClassy ''StaticBodyConfig
-
-instance (Reflex t, Enum a) => Default (StaticBodyConfig t a) where
-    def = StaticBodyConfig { _bodyPos = 0
-                           , _setBodyPos = never
-                           , _bodyRot = xDir
-                           , _setBodyRot = never
-                           , _collisionType = toEnum 0
-                           , _setCollisionType = never
-                           , _fixtures = []
-                           }
-
-data DynamicBodyConfig t a = DynamicBodyConfig { _dbToRBC :: StaticBodyConfig t a
-                                               , _bodyVel :: V2 Double -- ^ velocity
-                                               , _setBodyVel :: Event t (V2 Double)
-                                               , _bodyAngularVel :: Double -- ^ radians/s
-                                               , _setBodyAngularVel :: Event t Double
-                                               , _active :: Bool -- ^ activate/deactivate
-                                               , _setActive :: Event t Bool
-                                               -- apply force (V2 Double) at point (P2 Double)
-                                               , _force :: Event t (V2 Double, P2 Double)
-                                               -- apply impulse (V2 Double) at point (P2 Double)
-                                               , _impulse :: Event t (V2 Double, P2 Double)
-                                               }
-makeLenses ''DynamicBodyConfig
-
-instance (Reflex t, Enum a) => Default (DynamicBodyConfig t a) where
-    def = DynamicBodyConfig { _dbToRBC = def
-                            , _bodyVel = 0
-                            , _setBodyVel = never
-                            , _bodyAngularVel = 0
-                            , _setBodyAngularVel = never
-                            , _active = True
-                            , _setActive = never
-                            , _force = never
-                            , _impulse = never
-                            }
-
-instance HasStaticBodyConfig (DynamicBodyConfig t a) t a where
-    staticBodyConfig = dbToRBC
-
-data SpaceConfig t = SpaceConfig { _iterations :: Int
-                                 , _gravity :: Dynamic t (V2 Double)
-                                 }
-makeClassy ''SpaceConfig
-
-instance Reflex t => Default (SpaceConfig t) where
-    def = SpaceConfig { _iterations = 10
-                      , _gravity = constDyn 0
-                      }
-
 data Step = Step { _stepTime :: NominalDiffTime
                  }
 makeLenses ''Step
@@ -275,11 +241,11 @@ makeLenses ''DynSpace
 instance IsSpace (DynSpace t) where
     toSpace (DynSpace sp _) = sp
 
-space :: NodeGraph t m => Event t NominalDiffTime -> SpaceConfig t -> m (DynSpace t)
-space ts conf = do
+space :: NodeGraph t m => Event t NominalDiffTime -> [Prop Space m] -> m (DynSpace t)
+space ts props = do
     space <- liftIO cp_createSpace
-    liftIO $ cp_addCollisionHandler space >> cp_setIterations space (conf ^. iterations)
-    appDyn (liftIO . (cp_setGravity space <=< r2ToCPVec)) (conf ^. gravity)
+    liftIO $ cp_addCollisionHandler space
+    set space props
     fmap (DynSpace space) . forG ts $ \dt -> liftIO $ do
       cp_step space $ realToFrac dt
       return $ Step dt
@@ -293,8 +259,8 @@ makeLenses ''ContactPoint
 
 instance FromJSVal ContactPoint where
     fromJSVal a = do
-       contactP <- uncurry (^&) <$> (cp_getContactPoint a >>= unCPVec)
-       normal <- uncurry (^&) <$> (cp_getNormal a >>= unCPVec)
+       contactP <- cp_getContactPoint a >>= cpVecToR2
+       normal <- cp_getNormal a >>= cpVecToR2
        depth <- cp_getDist a
        return . Just $ ContactPoint contactP normal depth
 
@@ -303,6 +269,7 @@ data Arbiter a = Arbiter { _aToCoP :: CollisionCoefficients
                          , _surfaceVel :: V2 Double
                          , _otherBody :: Body
                          , _otherCollisionType :: a
+                         , _thisCollisionType :: a
                          , _contactPoints :: [ ContactPoint ]
                          -- support for shapes?
                          }
@@ -317,50 +284,24 @@ data CollisionEvents t a = CollisionEvents { _collisionBegan :: Event t (Arbiter
                                            }
 makeClassy ''CollisionEvents
 
--- -- XXX: Note, different invocations of this functions inside the same
--- -- program should still use the same Enum type to make sure there is no
--- -- crossovers
--- collisions :: (Enum a, IsSpace s, NodeGraph t m) => s -> a -> a -> m (CollisionEvents t)
--- collisions space collisionTypeA collisionTypeB = do
---     let sp = toSpace space
---         ctA = fromEnum collisionTypeA
---         ctB = fromEnum collisionTypeB
---         convCallback :: (Arbiter -> Space -> IO ()) -> IO (Callback (JSVal -> JSVal -> IO ()), IO ())
---         convCallback h = do
---           cb <- syncCallback2 ThrowWouldBlock $ \a b -> join . fmap sequence_ $ liftM2 h <$> fromJSVal a <*> fromJSVal b
---           return $ (cb, releaseCallback cb)
---     runWithActions <- askRunWithActions
---     evt <- newEventWithTrigger $ \et -> do
---       (began, releaseBegan) <- convCallback $ \arb _ -> do
---         runWithActions [et :=> Identity (Just arb, Nothing, Nothing)]
---       (postSolve, releasePostSolve) <- convCallback $ \arb _ -> do
---         runWithActions [et :=> Identity (Nothing, Just arb, Nothing)]
---       (separate, releaseSeparate) <- convCallback $ \arb _ -> do
---         runWithActions [et :=> Identity (Nothing, Nothing, Just arb)]
---       cp_addCollisionHandler sp ctA ctB began postSolve separate
---       return $ releaseBegan >> releasePostSolve >> releaseSeparate
---     return CollisionEvents { _collisionBegan = fmapMaybe (^._1) evt
---                            , _collisionPostSolve = fmapMaybe (^._2) evt
---                            , _collisionSeparate = fmapMaybe (^._3) evt
---                            }
-
-
-data DynBody t a = DynBody { _cpBody :: Body -- ^ Used for some reference related management
-                           , _dbToTrans :: Trans t
-                           , _dbToCe :: CollisionEvents t a
-                           }
+-- | DynBody is a body wrapped with Dynamic reflex components
+data DynBody t a b = DynBody { _cpBody :: b -- ^ Used for some reference related management
+                             , _bodyPos :: Dynamic t (P2 Double)
+                             , _bodyRot :: Dynamic t (Direction V2 Double)
+                             , _dbToCe :: CollisionEvents t a
+                             }
 makeLenses ''DynBody
 
-instance IsBody (DynBody t a) where
-    toBody (DynBody b _ _) = b
+instance IsBody b => IsBody (DynBody t a b) where
+    toBody (DynBody b _ _ _) = toBody b
 
-instance Eq (DynBody t a) where
-    (DynBody b1 _ _) == (DynBody b2 _ _) = b1 == b2
+instance IsDynamicBody b => IsDynamicBody (DynBody t a b) where
+    toDynamicBody (DynBody b _ _ _) = toDynamicBody b
 
-instance HasTrans (DynBody t a) t where
-    trans = dbToTrans
+instance Eq b => Eq (DynBody t a b) where
+    (DynBody b1 _ _ _) == (DynBody b2 _ _ _) = b1 == b2
 
-instance HasCollisionEvents (DynBody t a) t a where
+instance HasCollisionEvents (DynBody t a b) t a where
     collisionEvents = dbToCe
 
 
@@ -373,17 +314,17 @@ calcMoment mass (Poly verts) = cp_momentForPoly mass <$> toJSVal (cpFlattenedVer
 cpFlattenedVerts :: [P2 Double] -> [Double]
 cpFlattenedVerts verts = foldl' (\a p -> p^._x:p^._y:a) [] verts
 
-staticBody :: (NodeGraph t m, Enum a) => DynSpace t -> StaticBodyConfig t a -> m (DynBody t a)
-staticBody (DynSpace space steps) (StaticBodyConfig pos setPosE rot setRotE ct setCt fixs) = do
+initBody :: (NodeGraph t m, Enum a)
+         => DynSpace t
+         -> [Fixture]
+         -> (DynBody t a Body -> m b) -> m b
+initBody (DynSpace space steps) fixs setup = do
     body <- liftIO $ do
       totalMoment <- fmap sum . forM fixs $ \f -> calcMoment (f^.mass) (f^.shape)
       let totalMass = sumOf (traverse.mass) fixs
       cp_createBody totalMass totalMoment
     liftIO $ do
-      cp_addCollisionData body
-      cp_setPos body =<< r2ToCPVec pos
-      cp_setAngle body (rot^._theta.rad)
-      cp_setCollisionType body $ fromEnum ct
+      cp_setupData body space
       -- add all the shapes
       forM_ fixs $ \(Fixture shape _ (CollisionCoefficients elas fric) sensor) -> do
         cps <- case shape of
@@ -398,60 +339,137 @@ staticBody (DynSpace space steps) (StaticBodyConfig pos setPosE rot setRotE ct s
         cp_setFriction cps fric
         cp_setSensor cps sensor
         cp_addShape space cps
-    sequenceH_ . ffor setPosE $ liftIO . (cp_setPos body <=< r2ToCPVec)
-    sequenceH_ . ffor setRotE $ liftIO . cp_setAngle body . (^._theta.rad)
-    sequenceH_ . ffor setCt $ liftIO . cp_setCollisionType body . fromEnum
-    -- create the triggers for position and rotation
-    ets <- forG steps . const . liftIO $ do
-      pos <- cp_getPos body
-      (x, y) <- unCPVec pos
-      angle <- cp_getAngle body
-      return (x ^& y, eDir $ angle @@ rad)
-    let (posE, rotE) = splitE ets
-    posDyn <- holdDyn pos posE
-    rotDyn <- holdDyn rot rotE
-    runWithActions <- askRunWithActions
-    let convCallback ffi et = do
-          cb <- syncCallback3 ThrowWouldBlock $ \a bodyV ctV -> do
-            e <- cp_arbGetElasticity a
-            u <- cp_arbGetFriction a
-            sv <- uncurry V2 <$> (cp_arbGetSurfaceVel a >>= unCPVec)
-            mcps <- cp_arbGetContactPointSet a >>= fromJSVal
-            mct <- fromJSVal ctV
-            case (mcps, mct) of
-              (Just cps, Just t) -> runWithActions [
-                                        et :=> Identity Arbiter { _aToCoP = CollisionCoefficients e u
-                                                                , _surfaceVel = sv
-                                                                , _otherBody = Body bodyV
-                                                                , _otherCollisionType = toEnum t
-                                                                , _contactPoints = cps
-                                                                }
-                                    ]
-              _ -> return ()
-          _ <- ffi cb
-          return $ releaseCallback cb
-    -- set up the collision handlers
-    began <- newEventWithTrigger $ convCallback (cp_setCollisionBegan body)
-    postSolve <- newEventWithTrigger $ convCallback (cp_setCollisionPostSolve body)
-    separate <- newEventWithTrigger $ convCallback (cp_setCollisionSeparate body)
-    return $ DynBody body (Trans posDyn rotDyn) (CollisionEvents began postSolve separate)
+    rec let dbody = DynBody body posDyn rotDyn (CollisionEvents began postSolve separate)
+        res <- setup dbody
+        currPos <- get body pos
+        currRot <- get body rot
+        -- create the triggers for position and rotation
+        ets <- forG steps . const . liftIO $ do
+          pos <- cp_getPos body >>= cpVecToR2
+          angle <- cp_getAngle body
+          return (pos, eDir $ angle @@ rad)
+        let (posE, rotE) = splitE ets
+        posDyn <- holdDyn currPos posE
+        rotDyn <- holdDyn currRot rotE
+        runWithActions <- askRunWithActions
+        let convCallback ffi et = do
+              cb <- syncCallback3 ThrowWouldBlock $ \a bodyV ctV -> do
+                e <- cp_arbGetElasticity a
+                u <- cp_arbGetFriction a
+                sv <- cp_arbGetSurfaceVel a >>= cpVecToR2
+                mcps <- cp_arbGetContactPointSet a >>= fromJSVal
+                mct <- fromJSVal ctV
+                bct <- cp_getCollisionType body
+                case (mcps, mct) of
+                  (Just cps, Just t) -> runWithActions [
+                                            et :=> Identity Arbiter { _aToCoP = CollisionCoefficients e u
+                                                                    , _surfaceVel = sv
+                                                                    , _otherBody = Body bodyV
+                                                                    , _otherCollisionType = toEnum t
+                                                                    , _thisCollisionType = toEnum bct
+                                                                    , _contactPoints = cps
+                                                                    }
+                                        ]
+                  _ -> return ()
+              _ <- ffi cb
+              return $ releaseCallback cb
+        -- set up the collision handlers
+        began <- newEventWithTrigger $ convCallback (cp_setCollisionBegan body)
+        postSolve <- newEventWithTrigger $ convCallback (cp_setCollisionPostSolve body)
+        separate <- newEventWithTrigger $ convCallback (cp_setCollisionSeparate body)
+    return res
 
-dynamicBody :: (NodeGraph t m, Enum a, Eq a) => DynSpace t -> DynamicBodyConfig t a -> m (DynBody t a)
-dynamicBody dspace@(DynSpace space _) (DynamicBodyConfig sconf vel setVelE angVel setAngVel active setActiveE force impulse) = do
-    dbody@(DynBody body _ _) <- staticBody dspace sconf
-    liftIO $ do
-      cp_setVel body =<< r2ToCPVec vel
-      cp_setAngVel body angVel
-      -- actually add the body
-      if active then cp_addBody space body
-                else return ()
-    sequenceH_ . ffor setVelE $ liftIO . (cp_setVel body <=< r2ToCPVec)
-    sequenceH_ . ffor setAngVel $ liftIO . cp_setAngle body
-    sequenceH_ . ffor force $ \(f, point) -> liftIO . join $ cp_applyForce body <$> r2ToCPVec f <*> r2ToCPVec point
-    sequenceH_ . ffor impulse $ \(i, point) -> liftIO . join $ cp_applyImpulse body <$> r2ToCPVec i <*> r2ToCPVec point
-    -- TODO: when the chipmunk Mac jsb bug is fixed we should change to
-    -- cp_smartAdd/cp_smartRemove
-    sequenceH_ . ffor setActiveE $ \a -> liftIO $ if a then cp_smartAdd space body
-                                                       else cp_smartRemove space body
-    return dbody
+staticBody :: (NodeGraph t m, Enum a)
+           => DynSpace t
+           -> [Fixture] -> [Prop (DynBody t a Body) m]
+           -> m (DynBody t a Body)
+staticBody dspace fixs props = initBody dspace fixs $ \db -> set db props >> return db
 
+dynamicBody :: (NodeGraph t m, Enum a, Eq a)
+            => DynSpace t
+            -> [Fixture] -> [Prop (DynBody t a DynamicBody) m]
+            -> m (DynBody t a DynamicBody)
+dynamicBody dspace fixs props = initBody dspace fixs $ \db -> do
+        let (DynBody (Body bv) pos rot ce) = db
+        -- XXX: cast to DynamicBody
+        let db' = DynBody (DynamicBody bv) pos rot ce
+        set db' props
+        return db'
+
+---- attributes ----
+-- Space
+iterations :: (MonadIO m, IsSpace sp) => Attrib sp m Int
+iterations = attrib getter setter
+  where getter sp = liftIO $ cp_getIterations (toSpace sp)
+        setter sp iter = liftIO $ cp_setIterations (toSpace sp) iter
+
+gravity :: (MonadIO m, IsSpace sp) => Attrib sp m (V2 Double)
+gravity = attrib getter setter
+  where getter sp = liftIO $ cp_getGravity (toSpace sp) >>= cpVecToR2
+        setter sp g = liftIO $ r2ToCPVec g >>= cp_setGravity (toSpace sp)
+
+-- Body
+
+bodyPosAttr :: (MonadIO m, IsBody b) => Attrib b m (P2 Double)
+bodyPosAttr = attrib getter setter
+  where getter b = liftIO $ cp_getPos (toBody b) >>= cpVecToR2
+        setter b v = liftIO $ r2ToCPVec v >>= cp_setPos (toBody b)
+
+bodyRotAttr :: (MonadIO m, IsBody b) => Attrib b m (Direction V2 Double)
+bodyRotAttr = attrib getter setter
+    where getter b = liftIO $ eDir . (@@ rad) <$> cp_getAngle (toBody b)
+          setter b d = liftIO $ cp_setAngle (toBody b) (d^._theta.rad)
+
+instance {-# OVERLAPPING #-} MonadIO m => HasPosition Body m where
+    pos = bodyPosAttr
+
+instance {-# OVERLAPPING #-} MonadIO m => HasRotation Body m where
+    rot = bodyRotAttr
+
+instance {-# OVERLAPPING #-} MonadIO m => HasPosition DynamicBody m where
+    pos = bodyPosAttr
+
+instance {-# OVERLAPPING #-} MonadIO m => HasRotation DynamicBody m where
+    rot = bodyRotAttr
+
+instance {-# OVERLAPPING #-} (MonadIO m, IsBody b) => HasPosition (DynBody t a b) m where
+    pos = bodyPosAttr
+
+instance {-# OVERLAPPING #-} (MonadIO m, IsBody b) => HasRotation (DynBody t a b) m where
+    rot = bodyRotAttr
+
+collisionType :: (MonadIO m, Enum a, IsBody b) => Attrib (DynBody t a b) m a
+collisionType = attrib getter setter
+  where getter b = liftIO $ toEnum <$> cp_getCollisionType (toBody b)
+        setter b ct = liftIO $ cp_setCollisionType (toBody b) (fromEnum ct)
+
+vel :: (MonadIO m, IsDynamicBody b) => Attrib b m (V2 Double)
+vel = attrib getter setter
+  where getter b = liftIO $ cp_getVel (toDynamicBody b) >>= cpVecToR2
+        setter b v = liftIO $ r2ToCPVec v >>= cp_setVel (toDynamicBody b)
+
+angularVel :: (MonadIO m, IsDynamicBody b) => Attrib b m Double
+angularVel = attrib getter setter
+  where getter b = liftIO $ cp_getAngVel (toDynamicBody b)
+        setter b = liftIO . cp_setAngVel (toDynamicBody b)
+
+active :: (MonadIO m, IsDynamicBody b) => Attrib b m Bool
+active = attrib getter setter
+  where getter b = liftIO $ not <$> cp_isRogue (toDynamicBody b)
+        setter b a = liftIO $ do
+          let b' = toDynamicBody b
+          sp <- cp_getSpaceFromData b'
+          case a of
+            True -> cp_smartAdd sp b'
+            False -> cp_smartRemove sp b'
+
+-- | Currently modelled as applying a force at the given point whenever set
+force :: (MonadIO m, IsDynamicBody b) => SetOnlyAttrib b m (V2 Double, P2 Double)
+force = SetOnlyAttrib $ \b (f, p) -> liftIO $ do
+          let b' = toDynamicBody b
+          join $ cp_applyForce b' <$> r2ToCPVec f <*> r2ToCPVec p
+
+impulse :: (MonadIO m, IsDynamicBody b) => SetOnlyAttrib b m (V2 Double, P2 Double)
+impulse = SetOnlyAttrib $ \b (i, p) -> liftIO $ do
+            let b' = toDynamicBody b
+            join $ cp_applyImpulse b' <$> r2ToCPVec i <*> r2ToCPVec p

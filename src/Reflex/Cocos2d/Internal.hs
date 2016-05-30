@@ -76,7 +76,7 @@ instance MonadRef (HostFrame t) => MonadRef (Graph t) where
     writeRef r = Graph . lift . lift . writeRef r
 
 instance MonadIO (Graph t) => PrimMonad (Graph t) where
-    type PrimState (Graph t) = RealWorld
+    type PrimState (Graph t) = PrimState IO
     primitive = liftIO . primitive
 
 instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (HostFrame t)

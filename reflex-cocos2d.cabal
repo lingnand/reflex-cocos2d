@@ -48,8 +48,7 @@ cabal-version:       >=1.10
 
 library
   -- Modules exported by the library.
-  exposed-modules:     Reflex.Trans
-                       Reflex.Cocos2d,
+  exposed-modules:     Reflex.Cocos2d,
                        Reflex.Cocos2d.Prelude,
                        Reflex.Cocos2d.Class,
                        Reflex.Cocos2d.Internal,
@@ -57,7 +56,7 @@ library
                        Reflex.Cocos2d.Label,
                        Reflex.Cocos2d.Event,
                        Reflex.Cocos2d.Chipmunk,
-                       Reflex.Cocos2d.Utils
+                       Reflex.Cocos2d.Attributes
   
   -- Modules included in this library but not exported.
   -- other-modules:       
@@ -83,6 +82,7 @@ library
                        data-default,
                        primitive,
                        probable,
+                       mwc-random,
                        free,
                        ghcjs-base,
                        ghcjs-cocos2d

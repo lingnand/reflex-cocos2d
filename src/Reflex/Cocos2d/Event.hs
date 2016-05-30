@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE LambdaCase #-}
@@ -40,6 +41,8 @@ module Reflex.Cocos2d.Event
     , picks
     -- * Utility
     , nodeContains
+    , mapMDyn
+    , forMDyn
     , mapAccumMaybe
     , mapAccum
     , accum
@@ -47,6 +50,7 @@ module Reflex.Cocos2d.Event
     , dropWhileE
     , breakE
     , stack
+    , distribute
     -- * re-export the lower level
     , Touch(..)
     , loc
@@ -80,6 +84,7 @@ import JavaScript.Cocos2d.Schedule
 import qualified JavaScript.Cocos2d.Async as A
 import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Node
+import Reflex.Cocos2d.Attributes
 import Linear.Affine
 import Control.Monad.Ref
 
@@ -215,9 +220,9 @@ dynKeysDown keyPressed keyReleased = foldDynMaybe ($) S.empty $ leftmost [ ffor 
                                                                          , ffor keyReleased $ fmap Just . S.delete
                                                                          ]
 
-nodeContains :: (MonadIO m, MonadSample t m, IsNode n, HasSizeConfig n t) => n -> (P2 Double) -> m Bool
+nodeContains :: (MonadIO m, IsNode n) => n -> (P2 Double) -> m Bool
 nodeContains n p = do
-    sz <- sample (current $ n^.size)
+    sz <- get n size
     p' <- convertToNodeSpace n p
     return $ fromCorners 0 (0.+^sz) `contains` p'
 
@@ -280,6 +285,22 @@ delay' dt e = do
       return ()
     return e'
 
+mapMDyn :: forall t m a b. (Reflex t, MonadSample t m, MonadHold t m, MonadFix m)
+        => (forall m'. (MonadSample t m', MonadHold t m', MonadFix m') => a -> m' b)
+        -> Dynamic t a
+        -> m (Dynamic t b)
+mapMDyn f dyn = do
+  z <- f =<< sample (current dyn)
+  holdDyn z $ pushAlways f (updated dyn)
+
+forMDyn :: forall t m a b. (Reflex t, MonadSample t m, MonadHold t m, MonadFix m)
+        =>  Dynamic t a
+        -> (forall m'. (MonadSample t m', MonadHold t m', MonadFix m') => a -> m' b)
+        -> m (Dynamic t b)
+forMDyn dyn f = do
+  z <- f =<< sample (current dyn)
+  holdDyn z $ pushAlways f (updated dyn)
+
 mapAccumMaybe :: (Reflex t, MonadHold t m, MonadFix m) => (a -> b -> (a, Maybe c)) -> a -> Event t b -> m (Event t c)
 mapAccumMaybe f z e = do
     e' <- foldDyn (\b (a, _) -> f a b) (z, Nothing) e
@@ -318,10 +339,10 @@ breakE f e = do
 
 -- | Simple stack that responds to Events
 stack :: (Reflex t, MonadHold t m, MonadFix m)
-      => Event t (a -> b) -- ^ the request Event for taking items out / popping
+      => Event t (Maybe a -> b) -- ^ the request Event for taking items out / popping
       -> [a] -- ^ the initial state
       -> Event t a -- ^ the input states
-      -> m (Dynamic t [a], Event t (Maybe b)) -- ^ (stack Dynamic, the output Event)
+      -> m (Dynamic t [a], Event t b) -- ^ (stack Dynamic, the output Event)
 stack reqs z input = do
     rec let e = mergeWith (\f1 f2 a -> let (a', e1)  = f1 a
                                            (a'', e2) = f2 (fromMaybe a a')
@@ -329,8 +350,8 @@ stack reqs z input = do
                           )
                 [ (\i a -> (Just (i:a), Nothing)) <$> input
                 , ffor reqs $ \f -> \case
-                    [] -> (Nothing, Just Nothing) -- if there is nothing to take out, we get Nothing
-                    (a:as) -> (Just as, Just . Just $ f a)
+                    [] -> (Nothing, Just $ f Nothing) -- if there is nothing to take out, we get Nothing
+                    (a:as) -> (Just as, Just . f $ Just a)
                 ]
             e' = push ?? e $ \f -> do
                       a <- sample b'
@@ -338,6 +359,29 @@ stack reqs z input = do
             se' = fmapMaybe fst e'
         b' <- hold z se'
     return (unsafeDynamic b' se', fmapMaybe snd e')
+
+-- | Distribute a upstream 'task' Event into a list of 'worker' Events, such that
+-- * each input task is sent to only one of the workers
+-- * a worker receiving an input task won't receive another task until it sends a 'done' Event back
+distribute :: (Reflex t, MonadHold t m, MonadFix m)
+           => Event t a -- ^ input task Event
+           -> Int -- ^ number of workers (TODO: this is needed because we can't read "the list of Done Events" directly)
+           -> [Event t b] -- ^ the list of Done Events
+           -- ( Dynamic for the indices of idle workers, output Events, failed allocation Events )
+           -> m (Dynamic t [Int], [Event t a], Event t a)
+distribute tasks n workerDones = do
+    -- TODO: leftmost would cut some Done Events away
+    let ids = [1..n]
+        donesE = leftmost $ zipWith (<$) ids workerDones
+    (dSt, out) <- stack ((,) <$> tasks) ids donesE
+    let failed = fforMaybe out $ \case
+                    (t, Nothing) -> Just t
+                    _ -> Nothing
+        out' = fforMaybe out $ \case
+                    (t, Just id) -> Just (t, id)
+                    _ -> Nothing
+        dist = ffor ids $ \id -> fforMaybe out' $ \(t, id') -> guard (id' == id) >> return t
+    return (dSt, dist, failed)
 
 
 -- | Load a list of resources in an async manner
@@ -358,3 +402,26 @@ load resources = do
     schedulePostBuild $ A.load resources o
     return (trigger, finished)
 
+
+-------- WIDGET ----------
+
+
+-- Note:
+-- ccs makes heavy use of inheritance from CCNode to add behavior into the node hierarchy, this is
+-- okay as long as we know *where* they are and *what* they are; when loading from a ccs, though, for
+-- example, we lose that ability (as they can be arbitrarily located within)
+-- therefore we have to allow users to locate the nodes themselves and provide functions to add
+-- behavior into CCNode manually
+
+-- data WidgetTouchEvents t = WidgetTouchEvents { _widgetTouchBegan :: Event t (P2 Double)
+--                                              , _widgetTouchMoved :: Event t (P2 Double)
+--                                              , _widgetTouchEnded :: Event t (P2 Double)
+--                                              , _widgetTouchCancelled :: Event t ()
+--                                              }
+-- makeClassy ''WidgetTouchEvents
+--
+-- data WidgetEvents t = WidgetEvents { _weToWTouchEvents :: WidgetTouchEvents t
+--                                    , _widgetClickEvent :: Event t ()
+--                                    }
+--
+-- -- getWidgetEvents :: Node -> IO
