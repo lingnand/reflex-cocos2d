@@ -26,6 +26,9 @@ module Reflex.Cocos2d.Label
     , boundingHeight
     , stroke
     , shadow
+    -- re-export --
+    , Label
+    , IsLabel(..)
     ) where
 
 import Data.Colour

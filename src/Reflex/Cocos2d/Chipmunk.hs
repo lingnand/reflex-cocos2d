@@ -86,8 +86,12 @@ import Reflex.Cocos2d.Class
 
 -- public types
 newtype Space = Space JSVal deriving (FromJSVal)
+
 class IsSpace a where
     toSpace :: a -> Space
+
+instance IsSpace Space where
+    toSpace = id
 
 newtype Body = Body JSVal
 

@@ -51,6 +51,17 @@ module Reflex.Cocos2d.Event
     , breakE
     , stack
     , distribute
+    -- * Widget
+    , WidgetTouchEvents(WidgetTouchEvents)
+    , HasWidgetTouchEvents(..)
+    , WidgetEvents(WidgetEvents)
+    , widgetClicked
+    , widgetEvents
+    , pageViewEvents
+    , listViewEvents
+    , scrollViewEvents
+    , sliderEvents
+    , textFieldEvents
     -- * re-export the lower level
     , Touch(..)
     , loc
@@ -61,6 +72,20 @@ module Reflex.Cocos2d.Event
     , MouseEvent
     , Accel(..)
     , time
+
+    , PageView
+    , ListView
+    , ScrollView
+    , Slider
+    , TextField
+    , PageViewEvent(..)
+    , ListViewEvent(..)
+    , ScrollViewPos(..)
+    , ScrollViewEvent(..)
+    , SliderEvent(..)
+    , TextFieldEvent(..)
+    , loadCCS
+    , loadCCS'
     ) where
 
 import Diagrams (P2)
@@ -81,6 +106,7 @@ import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
 import JavaScript.Cocos2d.Event
 import JavaScript.Cocos2d.Schedule
+import JavaScript.Cocos2d.CCS
 import qualified JavaScript.Cocos2d.Async as A
 import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Node
@@ -101,26 +127,26 @@ data SingleTouchEvents t = SingleTouchEvents { _touchBegan :: Event t Touch
                                              }
 
 class HasTouchEvents c t | c -> t where
-    touchEvents :: Getter c (TouchEvents t)
+    touches :: Getter c (TouchEvents t)
     touchesBegan :: Getter c (Event t [Touch])
-    touchesBegan = touchEvents . to _touchesBegan
+    touchesBegan = touches . to _touchesBegan
     touchesMoved :: Getter c (Event t [Touch])
-    touchesMoved = touchEvents . to _touchesMoved
+    touchesMoved = touches . to _touchesMoved
     touchesEnded :: Getter c (Event t [Touch])
-    touchesEnded = touchEvents . to _touchesEnded
+    touchesEnded = touches . to _touchesEnded
     touchesCancelled :: Getter c (Event t [Touch])
-    touchesCancelled = touchEvents . to _touchesCancelled
+    touchesCancelled = touches . to _touchesCancelled
 
 class HasSingleTouchEvents c t | c -> t where
-    singleTouchEvents :: Getter c (SingleTouchEvents t)
+    singleTouches :: Getter c (SingleTouchEvents t)
     touchBegan :: Getter c (Event t Touch)
-    touchBegan = singleTouchEvents . to _touchBegan
+    touchBegan = singleTouches . to _touchBegan
     touchMoved :: Getter c (Event t Touch)
-    touchMoved = singleTouchEvents . to _touchMoved
+    touchMoved = singleTouches . to _touchMoved
     touchEnded :: Getter c (Event t Touch)
-    touchEnded = singleTouchEvents . to _touchEnded
+    touchEnded = singleTouches . to _touchEnded
     touchCancelled :: Getter c (Event t Touch)
-    touchCancelled = singleTouchEvents . to _touchCancelled
+    touchCancelled = singleTouches . to _touchCancelled
 
 filterSingular :: Reflex t => Event t [a] -> Event t a
 filterSingular = fmapMaybe $ \case
@@ -132,14 +158,14 @@ instance (Reflex t, HasTouchEvents c t) => HasSingleTouchEvents c t where
     touchMoved = touchesMoved . to filterSingular
     touchEnded = touchesEnded . to filterSingular
     touchCancelled = touchesCancelled . to filterSingular
-    singleTouchEvents = to $ \c -> SingleTouchEvents { _touchBegan = c ^. touchBegan
-                                                     , _touchMoved = c ^. touchMoved
-                                                     , _touchEnded = c ^. touchEnded
-                                                     , _touchCancelled = c ^. touchCancelled
-                                                     }
+    singleTouches = to $ \c -> SingleTouchEvents { _touchBegan = c ^. touchBegan
+                                                 , _touchMoved = c ^. touchMoved
+                                                 , _touchEnded = c ^. touchEnded
+                                                 , _touchCancelled = c ^. touchCancelled
+                                                 }
 
 instance HasTouchEvents (TouchEvents t) t where
-    touchEvents = id
+    touches = id
 
 
 data UIEventType a where
@@ -156,10 +182,10 @@ data UIEventType a where
     AccelChanged :: UIEventType (Accel Double)
 
 instance HasTouchEvents (EventSelector t UIEventType) t where
-    touchEvents = to $ TouchEvents <$> (select ?? TouchesBegan)
-                                   <*> (select ?? TouchesMoved)
-                                   <*> (select ?? TouchesEnded)
-                                   <*> (select ?? TouchesCancelled)
+    touches = to $ TouchEvents <$> (select ?? TouchesBegan)
+                               <*> (select ?? TouchesMoved)
+                               <*> (select ?? TouchesEnded)
+                               <*> (select ?? TouchesCancelled)
     touchesBegan = to (select ?? TouchesBegan)
     touchesEnded = to (select ?? TouchesEnded)
     touchesMoved = to (select ?? TouchesMoved)
@@ -405,23 +431,73 @@ load resources = do
 
 -------- WIDGET ----------
 
+data WidgetTouchEvents t = WidgetTouchEvents { _widgetTouchBegan :: Event t (P2 Double)
+                                             , _widgetTouchMoved :: Event t (P2 Double)
+                                             , _widgetTouchEnded :: Event t (P2 Double)
+                                             , _widgetTouchCancelled :: Event t ()
+                                             }
+makeClassyFor "HasWidgetTouchEvents" "widgetTouches" [ ("_widgetTouchBegan", "widgetTouchBegan")
+                                                     , ("_widgetTouchMoved", "widgetTouchMoved")
+                                                     , ("_widgetTouchEnded", "widgetTouchEnded")
+                                                     , ("_widgetTouchCancelled", "widgetTouchCancelled")
+                                                     ] ''WidgetTouchEvents
 
--- Note:
--- ccs makes heavy use of inheritance from CCNode to add behavior into the node hierarchy, this is
--- okay as long as we know *where* they are and *what* they are; when loading from a ccs, though, for
--- example, we lose that ability (as they can be arbitrarily located within)
--- therefore we have to allow users to locate the nodes themselves and provide functions to add
--- behavior into CCNode manually
+data WidgetEvents t = WidgetEvents { _weToWTouchEvents :: WidgetTouchEvents t
+                                   , _widgetClicked :: Event t ()
+                                   }
+makeLenses ''WidgetEvents
 
--- data WidgetTouchEvents t = WidgetTouchEvents { _widgetTouchBegan :: Event t (P2 Double)
---                                              , _widgetTouchMoved :: Event t (P2 Double)
---                                              , _widgetTouchEnded :: Event t (P2 Double)
---                                              , _widgetTouchCancelled :: Event t ()
---                                              }
--- makeClassy ''WidgetTouchEvents
---
--- data WidgetEvents t = WidgetEvents { _weToWTouchEvents :: WidgetTouchEvents t
---                                    , _widgetClickEvent :: Event t ()
---                                    }
---
--- -- getWidgetEvents :: Node -> IO
+instance HasWidgetTouchEvents (WidgetEvents t) t where
+    widgetTouches = weToWTouchEvents
+
+
+widgetEvents :: (NodeGraph t m, IsWidget w) => w -> m (WidgetEvents t)
+widgetEvents w = do
+    runWithActions <- askRunWithActions
+    evt <- newEventWithTrigger $ \et ->
+            setOnWidgetTouch w $ \t -> runWithActions [et :=> Identity t]
+    let beganE =  fforMaybe evt $ \case
+                    WidgetTouchBegan p -> Just p
+                    _ -> Nothing
+        movedE =  fforMaybe evt $ \case
+                    WidgetTouchMoved p -> Just p
+                    _ -> Nothing
+        endedE =  fforMaybe evt $ \case
+                    WidgetTouchEnded p -> Just p
+                    _ -> Nothing
+        cancelledE = fforMaybe evt $ \case
+                      WidgetTouchCancelled -> Just ()
+                      _ -> Nothing
+    clicks <- newEventWithTrigger $ \et ->
+      setOnWidgetClick w $ runWithActions [et :=> Identity ()]
+    return $ WidgetEvents (WidgetTouchEvents beganE movedE endedE cancelledE) clicks
+
+pageViewEvents :: NodeGraph t m => PageView -> m (Event t PageViewEvent)
+pageViewEvents w = do
+    runWithActions <- askRunWithActions
+    newEventWithTrigger $ \et ->
+      setOnPageViewEvent w $ \e -> runWithActions [et :=> Identity e]
+
+listViewEvents :: NodeGraph t m => ListView -> m (Event t ListViewEvent)
+listViewEvents w = do
+    runWithActions <- askRunWithActions
+    newEventWithTrigger $ \et ->
+      setOnListViewEvent w $ \e -> runWithActions [et :=> Identity e]
+
+scrollViewEvents :: NodeGraph t m => ScrollView -> m (Event t ScrollViewEvent)
+scrollViewEvents w = do
+    runWithActions <- askRunWithActions
+    newEventWithTrigger $ \et ->
+      setOnScrollViewEvent w $ \e -> runWithActions [et :=> Identity e]
+
+sliderEvents :: NodeGraph t m => Slider -> m (Event t SliderEvent)
+sliderEvents w = do
+    runWithActions <- askRunWithActions
+    newEventWithTrigger $ \et ->
+      setOnSliderEvent w $ \e -> runWithActions [et :=> Identity e]
+
+textFieldEvents :: NodeGraph t m => TextField -> m (Event t TextFieldEvent)
+textFieldEvents w = do
+    runWithActions <- askRunWithActions
+    newEventWithTrigger $ \et ->
+      setOnTextFieldEvent w $ \e -> runWithActions [et :=> Identity e]

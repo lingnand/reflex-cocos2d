@@ -44,8 +44,12 @@ module Reflex.Cocos2d.Node
     , flippedX
     , flippedY
     -- * re-export the lower level
+    , IsNode(..), IsLayer(..), IsSprite(..)
+    , Node, Layer, LayerColor, Sprite
     , convertToNodeSpace
     , convertToWorldSpace
+    , getChildByName
+    , castNode
     ) where
 
 import Data.Colour
