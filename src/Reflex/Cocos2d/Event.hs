@@ -425,7 +425,7 @@ load resources = do
             runWithActions [et :=> Identity (loaded+1, total)]
     finished <- newEventWithTrigger $ \et ->
         A.setLoadFinish o $ runWithActions [et :=> Identity ()]
-    schedulePostBuild $ A.load resources o
+    askPostBuildEvent >>= sequenceH_ . (A.load resources o <$)
     return (trigger, finished)
 
 

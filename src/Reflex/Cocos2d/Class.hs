@@ -27,7 +27,7 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
     -- | Schedule an action to occur after the current cohort has been
     -- built; this is necessary because Behaviors built in the current
     -- cohort may not be read until after it is complete
-    schedulePostBuild :: HostFrame t () -> m ()
+    askPostBuildEvent :: m (Event t ())
     askRunWithActions :: m ([DSum (EventTrigger t) Identity] -> IO ())
 
     -- Composition primitives
@@ -115,9 +115,7 @@ infixr 2 -<
 (-<) :: (NodeGraph t m, IsNode n) => m n -> Dynamic t (m a) -> m (n, Event t a)
 (-<) node child = do
     n <- node
-    (e, trigger) <- newEventWithTriggerRef
-    runWithActions <- askRunWithActions
-    schedulePostBuild . liftIO $ readRef trigger >>= mapM_ (\t -> runWithActions [t :=> Identity ()])
+    e <- askPostBuildEvent
     let newChild = leftmost [updated child, tag (current child) e]
     (_, evt) <- holdG n (return ()) newChild
     return (n, evt)

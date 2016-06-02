@@ -103,7 +103,8 @@ set n ((u :~ f):ps) = updater u n f >> set n ps
 -- | Transforms a IsSettable attribute to a SetOnlyAttribute. This uses lazy read on the incoming Dynamic
 dyn :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a))
     => attr w (HostFrame t) b a -> SetOnlyAttrib w m (Dynamic t a)
-dyn attr = SetOnlyAttrib' $ \w d -> do schedulePostBuild $ setter attr w =<< sample (current d)
+dyn attr = SetOnlyAttrib' $ \w d -> do evt <- askPostBuildEvent
+                                       sequenceH_ $ (setter attr w =<< sample (current d)) <$ evt
                                        es w (updated d)
   where SetOnlyAttrib' es = evt attr
 

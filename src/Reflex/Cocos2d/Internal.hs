@@ -17,6 +17,7 @@ module Reflex.Cocos2d.Internal
 import Data.Dependent.Sum (DSum (..))
 import Data.Maybe
 import Data.IORef
+import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State.Strict
@@ -35,14 +36,13 @@ import Reflex.Cocos2d.Class
 
 -- mostly borrowed from Reflex.Dom.Internal
 data GraphEnv t = GraphEnv { _graphParent :: !Node
+                           , _graphPostBuildEvent :: !(Event t ())
                            , _graphRunWithActions :: !([DSum (EventTrigger t) Identity] -> IO ())
                            }
 
 makeLenses ''GraphEnv
 
-data GraphState t = GraphState { _graphPostBuild :: !(HostFrame t ())
-                               , _graphVoidActions :: ![Event t (HostFrame t ())]
-                               }
+data GraphState t = GraphState { _graphVoidActions :: ![Event t (HostFrame t ())] }
 
 makeLenses ''GraphState
 
@@ -83,7 +83,7 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
          , MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
          , ReflexHost t ) => NodeGraph t (Graph t) where
     askParent = Graph $ view graphParent
-    schedulePostBuild a = Graph $ graphPostBuild %= (a>>)
+    askPostBuildEvent = Graph $ view graphPostBuildEvent
     subG n (Graph c) = Graph $ local (graphParent .~ toNode n) c
     holdG p child0 newChild = do
         let p' = toNode p
@@ -97,10 +97,12 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
         runWithActions <- askRunWithActions
         sequenceH_ . ffor newChild $ \(Graph g) -> do
             removeAllChildren p'
-            (r, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p' runWithActions)) (GraphState (return ()) [])
-            liftIO $ readRef newChildBuiltTriggerRef
-                     >>= mapM_ (\t -> runWithActions [t :=> Identity (r, mergeWith (flip (>>)) vas)])
-            postBuild
+            (postBuildE, postBuildTr) <- newEventWithTriggerRef
+            (r, GraphState vas) <- runStateT (runReaderT g (GraphEnv p' postBuildE runWithActions)) (GraphState [])
+            liftIO $ do
+              readRef newChildBuiltTriggerRef
+                >>= mapM_ (\t -> runWithActions [t :=> Identity (r, mergeWith (flip (>>)) vas)])
+              readRef postBuildTr >>= mapM_ (\t -> putStrLn "GOT POST BUILD TRIGGER" >> runWithActions [t :=> Identity ()])
         return (result0, fst <$> newChildBuilt)
     sequenceG newChild = do
         p <- askParent
@@ -108,13 +110,18 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
         voidActionDyn <- foldDynMaybe ?? never ?? (snd <$> newChildBuilt) $ \vas accE -> do
                             _ <- listToMaybe vas
                             return $ mergeWith (flip (>>)) (accE:vas)
-        sequenceH_ $ switch (current voidActionDyn)
+        sequenceH_ $ switchPromptlyDyn voidActionDyn
         runWithActions <- askRunWithActions
         sequenceH_ . ffor newChild $ \(Graph g) -> do
-            (r, GraphState postBuild vas) <- runStateT (runReaderT g (GraphEnv p runWithActions)) (GraphState (return ()) [])
-            liftIO $ readRef newChildBuiltTriggerRef
-                     >>= mapM_ (\t -> runWithActions [t :=> Identity (r, vas)])
-            postBuild
+            (postBuildE, postBuildTr) <- newEventWithTriggerRef
+            (r, GraphState vas) <- runStateT (runReaderT g (GraphEnv p postBuildE runWithActions)) (GraphState [])
+            let vas' = ((liftIO $ putStrLn "Oh No") <$ postBuildE) : vas
+            liftIO $ do
+              newCT <- readRef newChildBuiltTriggerRef
+              forM_ newCT $ \t -> runWithActions [t :=> Identity (r, vas')]
+              postBuildT <- readRef postBuildTr
+              putStrLn $ "GOT POST BUILD TRIGGER: " ++ (show $ () <$ postBuildT)
+              forM_ postBuildT $ \t -> runWithActions [t :=> Identity ()]
         return $ fst <$> newChildBuilt
     sequenceH_ a = Graph $ graphVoidActions %= (a:)
     -- this works because it forces a nested runWithActions call which has
@@ -146,6 +153,7 @@ mainScene (Graph g) = do
     scene <- createScene
     recRef <- newIORef (False, []) -- (running, saved_dm)
     runSpiderHost $ runHostFrame $ mdo
+        (postBuildE, postBuildTr) <- newEventWithTriggerRef
         let runWithActions [] = return ()
             runWithActions dm = do
               (running, saved) <- readIORef recRef
@@ -161,7 +169,7 @@ mainScene (Graph g) = do
                         (_, saved) <- readIORef recRef
                         process saved
                   process dm
-        GraphState postBuild vas <- execStateT (runReaderT g (GraphEnv (toNode scene) runWithActions)) (GraphState (return ()) [])
-        postBuild
+        GraphState vas <- execStateT (runReaderT g (GraphEnv (toNode scene) postBuildE runWithActions)) (GraphState [])
+        liftIO $ readRef postBuildTr >>= mapM_ (\t -> runWithActions [t :=> Identity ()])
         voidActionHandle <- subscribeEvent $ mergeWith (flip (>>)) vas
         runScene scene
