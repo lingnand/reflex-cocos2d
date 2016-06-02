@@ -48,8 +48,7 @@ module Reflex.Cocos2d.Chipmunk
     , space
 
     , DynBody
-    , bodyPos
-    , bodyRot
+    , transDyn
 
     , staticBody
     , dynamicBody
@@ -290,20 +289,19 @@ makeClassy ''CollisionEvents
 
 -- | DynBody is a body wrapped with Dynamic reflex components
 data DynBody t a b = DynBody { _cpBody :: b -- ^ Used for some reference related management
-                             , _bodyPos :: Dynamic t (P2 Double)
-                             , _bodyRot :: Dynamic t (Direction V2 Double)
+                             , _transDyn :: Dynamic t (P2 Double, Direction V2 Double)
                              , _dbToCe :: CollisionEvents t a
                              }
 makeLenses ''DynBody
 
 instance IsBody b => IsBody (DynBody t a b) where
-    toBody (DynBody b _ _ _) = toBody b
+    toBody (DynBody b _ _) = toBody b
 
 instance IsDynamicBody b => IsDynamicBody (DynBody t a b) where
-    toDynamicBody (DynBody b _ _ _) = toDynamicBody b
+    toDynamicBody (DynBody b _ _) = toDynamicBody b
 
 instance Eq b => Eq (DynBody t a b) where
-    (DynBody b1 _ _ _) == (DynBody b2 _ _ _) = b1 == b2
+    (DynBody b1 _ _) == (DynBody b2 _ _) = b1 == b2
 
 instance HasCollisionEvents (DynBody t a b) t a where
     collisionEvents = dbToCe
@@ -343,7 +341,7 @@ initBody (DynSpace space steps) fixs setup = do
         cp_setFriction cps fric
         cp_setSensor cps sensor
         cp_addShape space cps
-    rec let dbody = DynBody body posDyn rotDyn (CollisionEvents began postSolve separate)
+    rec let dbody = DynBody body tDyn (CollisionEvents began postSolve separate)
         res <- setup dbody
         currPos <- get body pos
         currRot <- get body rot
@@ -352,9 +350,7 @@ initBody (DynSpace space steps) fixs setup = do
           pos <- cp_getPos body >>= cpVecToR2
           angle <- cp_getAngle body
           return (pos, eDir $ angle @@ rad)
-        let (posE, rotE) = splitE ets
-        posDyn <- holdDyn currPos posE
-        rotDyn <- holdDyn currRot rotE
+        tDyn <- holdDyn (currPos, currRot) ets
         runWithActions <- askRunWithActions
         let convCallback ffi et = do
               cb <- syncCallback3 ThrowWouldBlock $ \a bodyV ctV -> do
@@ -394,9 +390,9 @@ dynamicBody :: (NodeGraph t m, Enum a, Eq a)
             -> [Fixture] -> [Prop (DynBody t a DynamicBody) m]
             -> m (DynBody t a DynamicBody)
 dynamicBody dspace fixs props = initBody dspace fixs $ \db -> do
-        let (DynBody (Body bv) pos rot ce) = db
+        let (DynBody (Body bv) tDyn ce) = db
         -- XXX: cast to DynamicBody
-        let db' = DynBody (DynamicBody bv) pos rot ce
+        let db' = DynBody (DynamicBody bv) tDyn ce
         set db' props
         return db'
 
@@ -469,11 +465,11 @@ active = attrib getter setter
 
 -- | Currently modelled as applying a force at the given point whenever set
 force :: (MonadIO m, IsDynamicBody b) => SetOnlyAttrib b m (V2 Double, P2 Double)
-force = SetOnlyAttrib $ \b (f, p) -> liftIO $ do
+force = SetOnlyAttrib' $ \b (f, p) -> liftIO $ do
           let b' = toDynamicBody b
           join $ cp_applyForce b' <$> r2ToCPVec f <*> r2ToCPVec p
 
 impulse :: (MonadIO m, IsDynamicBody b) => SetOnlyAttrib b m (V2 Double, P2 Double)
-impulse = SetOnlyAttrib $ \b (i, p) -> liftIO $ do
+impulse = SetOnlyAttrib' $ \b (i, p) -> liftIO $ do
             let b' = toDynamicBody b
             join $ cp_applyImpulse b' <$> r2ToCPVec i <*> r2ToCPVec p

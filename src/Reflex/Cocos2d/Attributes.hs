@@ -8,33 +8,39 @@
 -- | Concepts largely taken from Graphics.UI.WX.Attributes
 module Reflex.Cocos2d.Attributes
   (
-    Attrib(..)
+    Attrib'(..)
+  , Attrib
   , attrib
-  , SetOnlyAttrib(..)
+  , SetOnlyAttrib'(..)
+  , SetOnlyAttrib
   , Prop(..)
   , get
   , set
   , dyn
   , dyn'
   , evt
+  , divide
+  , divided
+  , choose
+  , chosen
   -- attrs --
   , HasPosition(..)
   , HasRotation(..)
   ) where
 
+import Data.Functor.Contravariant
 import Diagrams (P2, (^&), unp2, _x, _y, Direction, V2)
-import Control.Lens hiding (set)
+import Control.Lens hiding (set, chosen)
 import Control.Monad
 import Control.Monad.IO.Class
-import Reflex
 import Reflex.Host.Class
-
+import Reflex
 import Reflex.Cocos2d.Class
 
 infixr 0 :=,:~
 
-data Prop w m = forall a c. IsSettable w m a (c w m a) => (c w m a) := a -- ^ Assign a value to an attribute
-              | forall a c. IsUpdateable w m a (c w m a) => (c w m a) :~ (a -> a)  -- ^ Apply an update function to an attribute
+data Prop w m = forall a b c. IsSettable w m a (c w m b a) => (c w m b a) := a -- ^ Assign a value to an attribute
+              | forall a b c. IsUpdateable w m b a (c w m b a) => (c w m b a) :~ (b -> a)  -- ^ Apply an update function to an attribute
 
 class IsSettable w m a attr | attr -> w m a where
   setter :: attr -> w -> a -> m ()
@@ -42,28 +48,47 @@ class IsSettable w m a attr | attr -> w m a where
 class IsGettable w m a attr | attr -> w m a where
   getter :: attr -> w -> m a
 
-class IsUpdateable w m a attr | attr -> w m a where
-  updater :: attr -> w -> (a -> a) -> m a
+class IsUpdateable w m b a attr | attr -> w m b a where
+  updater :: attr -> w -> (b -> a) -> m b
 
--- | a datatype that supports getter, setter, and updater
-data Attrib w m a = Attrib (w -> m a) -- ^ Getter
-                           (w -> a -> m ()) -- ^ Setter
-                           (w -> (a -> a) -> m a) -- ^ Updater
+-- | A datatype that supports getter, setter, and updater
+data Attrib' w m b a = Attrib' (w -> m b) -- ^ Getter
+                               (w -> a -> m ()) -- ^ Setter
+                               (w -> (b -> a) -> m b) -- ^ Updater
 
-instance IsSettable w m a (Attrib w m a) where
-    setter (Attrib _ s _) = s
+type Attrib w m a = Attrib' w m a a
 
-instance IsGettable w m a (Attrib w m a) where
-    getter (Attrib g _ _) = g
+instance IsSettable w m a (Attrib' w m b a) where
+    setter (Attrib' _ s _) = s
 
-instance IsUpdateable w m a (Attrib w m a) where
-    updater (Attrib _ _ u) = u
+instance IsGettable w m b (Attrib' w m b a) where
+    getter (Attrib' g _ _) = g
 
+instance IsUpdateable w m b a (Attrib' w m b a) where
+    updater (Attrib' _ _ u) = u
 
-data SetOnlyAttrib w m a = SetOnlyAttrib (w -> a -> m ())
+instance Contravariant (Attrib' w m b) where
+    contramap f (Attrib' g s u) = Attrib' g s' u'
+      where s' w = s w . f
+            u' w uf = u w (f . uf)
 
-instance IsSettable w m a (SetOnlyAttrib w m a) where
-    setter (SetOnlyAttrib s) = s
+attrib :: Monad m => (w -> m a) -> (w -> a -> m ()) -> Attrib w m a
+attrib getter setter = Attrib' getter setter updater
+  where updater w u = do
+          a <- getter w
+          let a' = u a
+          setter w a'
+          return a'
+
+data SetOnlyAttrib' w m b a = SetOnlyAttrib' (w -> a -> m ())
+
+type SetOnlyAttrib w m a = forall b. SetOnlyAttrib' w m b a
+
+instance IsSettable w m a (SetOnlyAttrib' w m b a) where
+    setter (SetOnlyAttrib' s) = s
+
+instance Contravariant (SetOnlyAttrib' w m b) where
+    contramap f s = SetOnlyAttrib' $ \w -> setter s w . f
 
 get :: IsGettable n m a attr => n -> attr -> m a
 get = flip getter
@@ -73,35 +98,49 @@ set _ [] = return ()
 set n ((s := a):ps) = setter s n a >> set n ps
 set n ((u :~ f):ps) = updater u n f >> set n ps
 
+---- combinators ----
+
 -- | Transforms a IsSettable attribute to a SetOnlyAttribute. This uses lazy read on the incoming Dynamic
-dyn :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) a))
-    => attr w (HostFrame t) a -> SetOnlyAttrib w m (Dynamic t a)
-dyn attr = SetOnlyAttrib $ \w d -> do schedulePostBuild $ setter attr w =<< sample (current d)
-                                      es w (updated d)
-  where SetOnlyAttrib es = evt attr
+dyn :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a))
+    => attr w (HostFrame t) b a -> SetOnlyAttrib w m (Dynamic t a)
+dyn attr = SetOnlyAttrib' $ \w d -> do schedulePostBuild $ setter attr w =<< sample (current d)
+                                       es w (updated d)
+  where SetOnlyAttrib' es = evt attr
 
 -- | Similar to `dyn`, but applies strict read
 -- XXX: nasty constraints to allow 'c' to be instantiated as different types within the function
 dyn' :: ( NodeGraph t m
-        , IsSettable w (HostFrame t) a (attr w (HostFrame t) a)
-        , IsSettable w m a (attr w m a) )
-     => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' a)) => attr w m' a)
+        , IsSettable w (HostFrame t) a (attr w (HostFrame t) b a)
+        , IsSettable w m a (attr w m b a) )
+     => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
      -> SetOnlyAttrib w m (Dynamic t a)
-dyn' attr = SetOnlyAttrib $ \w d -> do setter attr w =<< sample (current d)
-                                       es w (updated d)
-  where SetOnlyAttrib es = evt attr
+dyn' attr = SetOnlyAttrib' $ \w d -> do setter attr w =<< sample (current d)
+                                        es w (updated d)
+  where SetOnlyAttrib' es = evt attr
 
-evt :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) a))
-    => attr w (HostFrame t) a -> SetOnlyAttrib w m (Event t a)
-evt attr = SetOnlyAttrib $ \w e -> sequenceH_ . ffor e $ setter attr w
+evt :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a))
+    => attr w (HostFrame t) b a -> SetOnlyAttrib w m (Event t a)
+evt attr = SetOnlyAttrib' $ \w e -> sequenceH_ . ffor e $ setter attr w
 
-attrib :: Monad m => (w -> m a) -> (w -> a -> m ()) -> Attrib w m a
-attrib getter setter = Attrib getter setter updater
-  where updater w u = do
-          a <- getter w
-          let a' = u a
-          setter w a'
-          return a'
+-- degenerative combinators following Contravariant.Divisible
+divide :: (Monad m, IsSettable w m b attrb, IsSettable w m c attrc)
+       => (a -> (b, c)) -> attrb -> attrc -> SetOnlyAttrib w m a
+divide f attrb attrc = SetOnlyAttrib' $ \w a -> let (b, c) = f a in do setter attrb w b
+                                                                       setter attrc w c
+
+divided :: (Monad m, IsSettable w m b attrb, IsSettable w m c attrc)
+        => attrb -> attrc -> SetOnlyAttrib w m (b, c)
+divided = divide id
+
+choose :: (Monad m, IsSettable w m b attrb, IsSettable w m c attrc)
+       => (a -> Either b c) -> attrb -> attrc -> SetOnlyAttrib w m a
+choose f attrb attrc = SetOnlyAttrib' $ \w a -> case f a of
+                                                  Left b -> setter attrb w b
+                                                  Right c -> setter attrc w c
+
+chosen :: (Monad m, IsSettable w m b attrb, IsSettable w m c attrc)
+       => attrb -> attrc -> SetOnlyAttrib w m (Either b c)
+chosen = choose id
 
 ---- General Attribs ----
 
@@ -109,16 +148,16 @@ class Monad m => HasPosition n m where
   pos :: Attrib n m (P2 Double)
   pos = attrib (\n -> (^&) <$> gx n <*> gy n)
                (\n p -> let (x, y) = unp2 p in sx n x >> sy n y)
-    where Attrib gx sx _ = posX
-          Attrib gy sy _ = posY
+    where Attrib' gx sx _ = posX
+          Attrib' gy sy _ = posY
   posX :: Attrib n m Double
-  posX = Attrib getter' setter' (\n u -> (^._x) <$> updater n (_x %~ u))
-    where Attrib getter _ updater = pos
+  posX = Attrib' getter' setter' (\n u -> (^._x) <$> updater n (_x %~ u))
+    where Attrib' getter _ updater = pos
           getter' n = (^._x) <$> getter n
           setter' n x = void $ updater n (_x .~ x)
   posY :: Attrib n m Double
-  posY = Attrib getter' setter' (\n u -> (^._y) <$> updater n (_y %~ u))
-    where Attrib getter _ updater = pos
+  posY = Attrib' getter' setter' (\n u -> (^._y) <$> updater n (_y %~ u))
+    where Attrib' getter _ updater = pos
           getter' n = (^._y) <$> getter n
           setter' n y = void $ updater n (_y .~ y)
 

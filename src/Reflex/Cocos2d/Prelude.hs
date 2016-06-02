@@ -2,6 +2,7 @@ module Reflex.Cocos2d.Prelude
     (
       module Reflex.Cocos2d
     , module Data.Time.Clock
+    , module Data.Functor.Contravariant
     , module Diagrams.Prelude
     , module Diagrams.TwoD.Vector
     , module Diagrams.BoundingBox
@@ -16,10 +17,11 @@ import Diagrams.Prelude hiding
   ( arrow, loc, position, sample, opacity, _opacity
   , scale, scaleX, scaleY, size, flipped, width, height
   , Dynamic, End, text, stroke, fontSize, normal, discrete
-  , set)
+  , set, chosen, phantom )
 import Diagrams.TwoD.Vector (e)
 import Diagrams.BoundingBox
 import Data.Time.Clock
+import Data.Functor.Contravariant
 import Reflex.Cocos2d
 import JavaScript.Cocos2d
 import Math.Probable hiding (Event, never, EventT, P, prob, liftF {- conflict with Free -})

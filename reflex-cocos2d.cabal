@@ -83,6 +83,7 @@ library
                        primitive,
                        probable,
                        mwc-random,
+                       contravariant,
                        free,
                        ghcjs-base,
                        ghcjs-cocos2d

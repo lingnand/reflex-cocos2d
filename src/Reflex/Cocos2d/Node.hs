@@ -189,11 +189,11 @@ color = attrib getColor setColor
 
 -- | Currently modelled as non-stoppable action that gets run when set
 action :: (MonadIO m, IsNode n) => SetOnlyAttrib n m Action
-action = SetOnlyAttrib runAction
+action = SetOnlyAttrib' runAction
 
 -- | Set the sprite's frame name. (can only get textureFileName once set, which /= frameName)
 spriteName :: (MonadIO m, IsSprite n) => SetOnlyAttrib n m String
-spriteName = SetOnlyAttrib setSpriteByName
+spriteName = SetOnlyAttrib' setSpriteByName
 
 flipped :: (MonadIO m, IsSprite n) => Attrib n m (V2 Bool)
 flipped = attrib getFlipped setFlipped

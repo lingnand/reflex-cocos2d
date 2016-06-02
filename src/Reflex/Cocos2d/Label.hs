@@ -105,11 +105,11 @@ boundingHeight = attrib getBoundingHeight setBoundingHeight
 
 -- | Just Stroke to turn on stroke, Nothing to turn it off
 stroke :: (MonadIO m, IsLabel l) => SetOnlyAttrib l m (Maybe Stroke)
-stroke = SetOnlyAttrib set
+stroke = SetOnlyAttrib' set
   where set l (Just (Stroke sColor sSize)) = enableStroke l sColor sSize
         set l _ = disableStroke l
 
 shadow :: (MonadIO m, IsLabel l) => SetOnlyAttrib l m (Maybe Shadow)
-shadow = SetOnlyAttrib set
+shadow = SetOnlyAttrib' set
   where set l (Just (Shadow shColor (V2 offsetX offsetY) shBlur)) = enableShadow l shColor offsetX offsetY shBlur
         set l _ = disableShadow l
