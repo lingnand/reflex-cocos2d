@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ImpredicativeTypes #-}
@@ -37,7 +38,7 @@ import Reflex.Cocos2d.Class
 -- mostly borrowed from Reflex.Dom.Internal
 data GraphEnv t = GraphEnv { _graphParent :: !Node
                            , _graphPostBuildEvent :: !(Event t ())
-                           , _graphRunWithActions :: !([DSum (EventTrigger t) Identity] -> IO ())
+                           , _graphRunWithActions :: !(([DSum (EventTrigger t) Identity], IO ()) -> IO ())
                            }
 
 makeLenses ''GraphEnv
@@ -84,50 +85,61 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
          , ReflexHost t ) => NodeGraph t (Graph t) where
     askParent = Graph $ view graphParent
     askPostBuildEvent = Graph $ view graphPostBuildEvent
-    subG n (Graph c) = Graph $ local (graphParent .~ toNode n) c
-    holdG p child0 newChild = do
+    subGraph n (Graph c) = Graph $ local (graphParent .~ toNode n) c
+    holdGraph p child0 newChild = do
         let p' = toNode p
         vas <- Graph $ use graphVoidActions <* (graphVoidActions .= [])
-        result0 <- subG p' child0
+        result0 <- subGraph p' child0
         vas' <- Graph $ use graphVoidActions <* (graphVoidActions .= vas)
         let voidAction0 = mergeWith (flip (>>)) vas'
         (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
         voidAction <- hold voidAction0 $ snd <$> newChildBuilt
-        sequenceH_ $ switch voidAction
+        runEvent_ $ switch voidAction
         runWithActions <- askRunWithActions
-        sequenceH_ . ffor newChild $ \(Graph g) -> do
+        onEvent_ newChild $ \(Graph g) -> do
             removeAllChildren p'
             (postBuildE, postBuildTr) <- newEventWithTriggerRef
+            let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> runWithActions ([t :=> Identity ()], return ()))
             (r, GraphState vas) <- runStateT (runReaderT g (GraphEnv p' postBuildE runWithActions)) (GraphState [])
-            liftIO $ do
-              readRef newChildBuiltTriggerRef
-                >>= mapM_ (\t -> runWithActions [t :=> Identity (r, mergeWith (flip (>>)) vas)])
-              readRef postBuildTr >>= mapM_ (\t -> putStrLn "GOT POST BUILD TRIGGER" >> runWithActions [t :=> Identity ()])
+            liftIO $ readRef newChildBuiltTriggerRef
+                      >>= mapM_ (\t -> runWithActions ([t :=> Identity (r, mergeWith (flip (>>)) vas)], firePostBuild))
         return (result0, fst <$> newChildBuilt)
-    sequenceG newChild = do
+    buildEvent newChild = do
         p <- askParent
         (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
         voidActionDyn <- foldDynMaybe ?? never ?? (snd <$> newChildBuilt) $ \vas accE -> do
                             _ <- listToMaybe vas
                             return $ mergeWith (flip (>>)) (accE:vas)
-        sequenceH_ $ switchPromptlyDyn voidActionDyn
+        runEvent_ $ switchPromptlyDyn voidActionDyn
         runWithActions <- askRunWithActions
-        sequenceH_ . ffor newChild $ \(Graph g) -> do
+        onEvent_ newChild $ \(Graph g) -> do
             (postBuildE, postBuildTr) <- newEventWithTriggerRef
+            let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> runWithActions ([t :=> Identity ()], return ()))
             (r, GraphState vas) <- runStateT (runReaderT g (GraphEnv p postBuildE runWithActions)) (GraphState [])
-            let vas' = ((liftIO $ putStrLn "Oh No") <$ postBuildE) : vas
-            liftIO $ do
-              newCT <- readRef newChildBuiltTriggerRef
-              forM_ newCT $ \t -> runWithActions [t :=> Identity (r, vas')]
-              postBuildT <- readRef postBuildTr
-              putStrLn $ "GOT POST BUILD TRIGGER: " ++ (show $ () <$ postBuildT)
-              forM_ postBuildT $ \t -> runWithActions [t :=> Identity ()]
+            liftIO $ readRef newChildBuiltTriggerRef
+                      >>= mapM_ (\t -> runWithActions ([t :=> Identity (r, vas)], firePostBuild))
         return $ fst <$> newChildBuilt
-    sequenceH_ a = Graph $ graphVoidActions %= (a:)
+    buildEvent_ = void . buildEvent
+    runEvent_ a = Graph $ graphVoidActions %= (a:)
+    runEventMaybe e = do
+      runWithActions <- askRunWithActions
+      (eResult, trigger) <- newEventWithTriggerRef
+      onEvent_ e $ \o -> do
+          o >>= \case
+            Just x -> liftIO $ readRef trigger >>= mapM_ (\t -> runWithActions ([t :=> Identity x], return ()))
+            _ -> return ()
+      return eResult
+    runEvent = runEventMaybe . fmap (Just <$>)
+    filterMEvent f e = runEventMaybe . ffor e $ \v -> do
+                            b <- f v
+                            return $ guard b >> return v
+    onEventMaybe e = runEventMaybe . ffor e
+    onEvent e = runEvent . ffor e
+    onEvent_ e = runEvent_ . ffor e
     -- this works because it forces a nested runWithActions call which has
     -- to be pushed pending and only fired when the current runWithActions
     -- finishes
-    delay = mapG return
+    delay = runEvent . fmap return
     askRunWithActions = Graph $ view graphRunWithActions
 
 -- the reason why we could do away with LOCKs and thread local storage in
@@ -151,25 +163,29 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
 mainScene :: Graph Spider a -> IO ()
 mainScene (Graph g) = do
     scene <- createScene
-    recRef <- newIORef (False, []) -- (running, saved_dm)
+    recRef <- newIORef (False, [], []) -- (running, saved_dm)
     runSpiderHost $ runHostFrame $ mdo
         (postBuildE, postBuildTr) <- newEventWithTriggerRef
-        let runWithActions [] = return ()
-            runWithActions dm = do
-              (running, saved) <- readIORef recRef
+        let runWithActions (dm, aft) = do
+              (running, saved, savedAft) <- readIORef recRef
               if running
-                then writeIORef recRef (running, saved++dm)
+                then writeIORef recRef (running, dm++saved, aft:savedAft)
                 else do
-                  let process [] = writeIORef recRef (False, [])
-                      process es = do
-                        writeIORef recRef (True, [])
+                  let process [] [] = writeIORef recRef (False, [], [])
+                      process [] aft = do
+                        writeIORef recRef (True, [], [])
+                        foldl (flip (>>)) (return ()) aft
+                        (_, saved, savedAft) <- readIORef recRef
+                        process saved savedAft
+                      process es aft = do
+                        writeIORef recRef (True, [], [])
                         runSpiderHost $ do
                             va <- fireEventsAndRead es $ sequence =<< readEvent voidActionHandle
                             runHostFrame $ sequence_ va
-                        (_, saved) <- readIORef recRef
-                        process saved
-                  process dm
+                        (_, saved, savedAft) <- readIORef recRef
+                        process saved (aft++savedAft)
+                  process dm [aft]
         GraphState vas <- execStateT (runReaderT g (GraphEnv (toNode scene) postBuildE runWithActions)) (GraphState [])
-        liftIO $ readRef postBuildTr >>= mapM_ (\t -> runWithActions [t :=> Identity ()])
         voidActionHandle <- subscribeEvent $ mergeWith (flip (>>)) vas
+        liftIO $ readRef postBuildTr >>= mapM_ (\t -> runWithActions ([t :=> Identity ()], return ()))
         runScene scene

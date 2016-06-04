@@ -104,7 +104,7 @@ set n ((u :~ f):ps) = updater u n f >> set n ps
 dyn :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a))
     => attr w (HostFrame t) b a -> SetOnlyAttrib w m (Dynamic t a)
 dyn attr = SetOnlyAttrib' $ \w d -> do evt <- askPostBuildEvent
-                                       sequenceH_ $ (setter attr w =<< sample (current d)) <$ evt
+                                       runEvent_ $ (setter attr w =<< sample (current d)) <$ evt
                                        es w (updated d)
   where SetOnlyAttrib' es = evt attr
 
@@ -121,7 +121,7 @@ dyn' attr = SetOnlyAttrib' $ \w d -> do setter attr w =<< sample (current d)
 
 evt :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a))
     => attr w (HostFrame t) b a -> SetOnlyAttrib w m (Event t a)
-evt attr = SetOnlyAttrib' $ \w e -> sequenceH_ . ffor e $ setter attr w
+evt attr = SetOnlyAttrib' $ \w e -> onEvent_ e $ setter attr w
 
 -- degenerative combinators following Contravariant.Divisible
 divide :: (Monad m, IsSettable w m b attrb, IsSettable w m c attrc)

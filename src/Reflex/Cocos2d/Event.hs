@@ -100,6 +100,7 @@ import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
 import Control.Lens hiding (contains)
+import Control.Monad.Ref
 import Math.Probable hiding (Event, never)
 import Reflex
 import Reflex.Host.Class
@@ -112,7 +113,6 @@ import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Node
 import Reflex.Cocos2d.Attributes
 import Linear.Affine
-import Control.Monad.Ref
 
 data TouchEvents t = TouchEvents { _touchesBegan :: Event t [Touch]
                                  , _touchesMoved :: Event t [Touch]
@@ -220,18 +220,18 @@ uiEvents = do
               addListener' l (-1)
               return $ removeListener l >> releaseCb
       in case uiEventType of
-          TouchesBegan -> wrap createTouchAllAtOnceEventListener $ setOnTouchesBegan ?? \t -> runWithActions [et :=> Identity t]
-          TouchesEnded -> wrap createTouchAllAtOnceEventListener $ setOnTouchesEnded ?? \t -> runWithActions [et :=> Identity t]
-          TouchesMoved -> wrap createTouchAllAtOnceEventListener $ setOnTouchesMoved ?? \t -> runWithActions [et :=> Identity t]
-          TouchesCancelled -> wrap createTouchAllAtOnceEventListener $ setOnTouchesCancelled ?? \t -> runWithActions [et :=> Identity t]
-          MouseDown -> wrap createMouseEventListener $ setOnMouseDown ?? \m -> runWithActions [et :=> Identity m]
-          MouseUp -> wrap createMouseEventListener $ setOnMouseUp ?? \m -> runWithActions [et :=> Identity m]
-          MouseMove -> wrap createMouseEventListener $ setOnMouseMove ?? \m -> runWithActions [et :=> Identity m]
-          MouseScroll -> wrap createMouseEventListener $ setOnMouseScroll ?? \m -> runWithActions [et :=> Identity m]
-          KeyPressed -> wrap createKeyboardEventListener $ setOnKeyPressed ?? \k -> runWithActions [et :=> Identity k]
-          KeyReleased -> wrap createKeyboardEventListener $ setOnKeyReleased ?? \k -> runWithActions [et :=> Identity k]
+          TouchesBegan -> wrap createTouchAllAtOnceEventListener $ setOnTouchesBegan ?? \t -> runWithActions ([et :=> Identity t], return ())
+          TouchesEnded -> wrap createTouchAllAtOnceEventListener $ setOnTouchesEnded ?? \t -> runWithActions ([et :=> Identity t], return ())
+          TouchesMoved -> wrap createTouchAllAtOnceEventListener $ setOnTouchesMoved ?? \t -> runWithActions ([et :=> Identity t], return ())
+          TouchesCancelled -> wrap createTouchAllAtOnceEventListener $ setOnTouchesCancelled ?? \t -> runWithActions ([et :=> Identity t], return ())
+          MouseDown -> wrap createMouseEventListener $ setOnMouseDown ?? \m -> runWithActions ([et :=> Identity m], return ())
+          MouseUp -> wrap createMouseEventListener $ setOnMouseUp ?? \m -> runWithActions ([et :=> Identity m], return ())
+          MouseMove -> wrap createMouseEventListener $ setOnMouseMove ?? \m -> runWithActions ([et :=> Identity m], return ())
+          MouseScroll -> wrap createMouseEventListener $ setOnMouseScroll ?? \m -> runWithActions ([et :=> Identity m], return ())
+          KeyPressed -> wrap createKeyboardEventListener $ setOnKeyPressed ?? \k -> runWithActions ([et :=> Identity k], return ())
+          KeyReleased -> wrap createKeyboardEventListener $ setOnKeyReleased ?? \k -> runWithActions ([et :=> Identity k], return ())
           AccelChanged -> do
-            (l, releaseCb) <- createAccelEventListener (\acc -> runWithActions [et :=> Identity acc])
+            (l, releaseCb) <- createAccelEventListener (\acc -> runWithActions ([et :=> Identity acc], return ()))
             addListener' l (-1)
             return $ removeListener l >> releaseCb
     return $! e
@@ -265,7 +265,7 @@ dragged (SingleTouchEvents began moved ended _) = do
     let mstream = leftmost [ (True,) <$> moved
                            , (False,) <$> ended
                            ]
-    rec e' <- forG began $ \t -> do
+    rec e' <- onEvent began $ \t -> do
           (ms, _) <- sample b'
           (movedSeg, ms') <- breakE fst ms
           (endedSeg, ms'') <- headTailE ms'
@@ -285,7 +285,7 @@ ticks :: NodeGraph t m => m (Event t NominalDiffTime)
 ticks = do
     runWithActions <- askRunWithActions
     newEventWithTrigger $ \et ->
-        scheduleUpdate 0 $ \d -> runWithActions [et :=> Identity d]
+        scheduleUpdate 0 $ \d -> runWithActions ([et :=> Identity d], return ())
 
 -- ticks' :: NodeGraph t m => NominalDiffTime -> m (Event t NominalDiffTime)
 -- ticks' interval = do
@@ -294,18 +294,18 @@ ticks = do
 --         scheduleUpdate' interval True $ \d -> runWithActions [et :=> Identity d]
 
 -- | Sample a value out of each RandT on each new event
-picks :: NodeGraph t m => Event t (RandT m a) -> RandT m (Event t a)
-picks evt = RandT $ \g -> forG evt $ \rt -> runRandT rt g
+picks :: (NodeGraph t m) => Event t (RandT IO a) -> RandT m (Event t a)
+picks evt = RandT $ \g -> onEvent evt $ \rt -> liftIO $ runRandT rt g
 
 -- | Delay an Event by the given amount of time
 delay' :: NodeGraph t m => NominalDiffTime -> Event t a -> m (Event t a)
 delay' dt e = do
     runWithActions <- askRunWithActions
     (e', trigger) <- newEventWithTriggerRef
-    sequenceH_ . ffor e $ \a -> mdo
+    onEvent_ e $ \a -> mdo
       -- ignoring the tear-down function for now
       release <- scheduleUpdate' dt False $ \_ -> do
-        readRef trigger >>= mapM_ (\t -> runWithActions [t :=> Identity a])
+        readRef trigger >>= mapM_ (\t -> runWithActions ([t :=> Identity a], return ()))
         -- after finished with the update, release directly
         release
       return ()
@@ -422,10 +422,10 @@ load resources = do
     runWithActions <- askRunWithActions
     trigger <- newEventWithTrigger $ \et ->
         A.setLoadTrigger o $ \total loaded ->
-            runWithActions [et :=> Identity (loaded+1, total)]
+            runWithActions ([et :=> Identity (loaded+1, total)], return ())
     finished <- newEventWithTrigger $ \et ->
-        A.setLoadFinish o $ runWithActions [et :=> Identity ()]
-    askPostBuildEvent >>= sequenceH_ . (A.load resources o <$)
+        A.setLoadFinish o $ runWithActions ([et :=> Identity ()], return ())
+    askPostBuildEvent >>= runEvent_ . (A.load resources o <$)
     return (trigger, finished)
 
 
@@ -455,7 +455,7 @@ widgetEvents :: (NodeGraph t m, IsWidget w) => w -> m (WidgetEvents t)
 widgetEvents w = do
     runWithActions <- askRunWithActions
     evt <- newEventWithTrigger $ \et ->
-            setOnWidgetTouch w $ \t -> runWithActions [et :=> Identity t]
+            setOnWidgetTouch w $ \t -> runWithActions ([et :=> Identity t], return ())
     let beganE =  fforMaybe evt $ \case
                     WidgetTouchBegan p -> Just p
                     _ -> Nothing
@@ -469,35 +469,35 @@ widgetEvents w = do
                       WidgetTouchCancelled -> Just ()
                       _ -> Nothing
     clicks <- newEventWithTrigger $ \et ->
-      setOnWidgetClick w $ runWithActions [et :=> Identity ()]
+      setOnWidgetClick w $ runWithActions ([et :=> Identity ()], return ())
     return $ WidgetEvents (WidgetTouchEvents beganE movedE endedE cancelledE) clicks
 
 pageViewEvents :: NodeGraph t m => PageView -> m (Event t PageViewEvent)
 pageViewEvents w = do
     runWithActions <- askRunWithActions
     newEventWithTrigger $ \et ->
-      setOnPageViewEvent w $ \e -> runWithActions [et :=> Identity e]
+      setOnPageViewEvent w $ \e -> runWithActions ([et :=> Identity e], return ())
 
 listViewEvents :: NodeGraph t m => ListView -> m (Event t ListViewEvent)
 listViewEvents w = do
     runWithActions <- askRunWithActions
     newEventWithTrigger $ \et ->
-      setOnListViewEvent w $ \e -> runWithActions [et :=> Identity e]
+      setOnListViewEvent w $ \e -> runWithActions ([et :=> Identity e], return ())
 
 scrollViewEvents :: NodeGraph t m => ScrollView -> m (Event t ScrollViewEvent)
 scrollViewEvents w = do
     runWithActions <- askRunWithActions
     newEventWithTrigger $ \et ->
-      setOnScrollViewEvent w $ \e -> runWithActions [et :=> Identity e]
+      setOnScrollViewEvent w $ \e -> runWithActions ([et :=> Identity e], return ())
 
 sliderEvents :: NodeGraph t m => Slider -> m (Event t SliderEvent)
 sliderEvents w = do
     runWithActions <- askRunWithActions
     newEventWithTrigger $ \et ->
-      setOnSliderEvent w $ \e -> runWithActions [et :=> Identity e]
+      setOnSliderEvent w $ \e -> runWithActions ([et :=> Identity e], return ())
 
 textFieldEvents :: NodeGraph t m => TextField -> m (Event t TextFieldEvent)
 textFieldEvents w = do
     runWithActions <- askRunWithActions
     newEventWithTrigger $ \et ->
-      setOnTextFieldEvent w $ \e -> runWithActions [et :=> Identity e]
+      setOnTextFieldEvent w $ \e -> runWithActions ([et :=> Identity e], return ())

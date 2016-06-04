@@ -249,7 +249,7 @@ space ts props = do
     space <- liftIO cp_createSpace
     liftIO $ cp_addCollisionHandler space
     set space props
-    fmap (DynSpace space) . forG ts $ \dt -> liftIO $ do
+    fmap (DynSpace space) . onEvent ts $ \dt -> liftIO $ do
       cp_step space $ realToFrac dt
       return $ Step dt
 
@@ -346,7 +346,7 @@ initBody (DynSpace space steps) fixs setup = do
         currPos <- get body pos
         currRot <- get body rot
         -- create the triggers for position and rotation
-        ets <- forG steps . const . liftIO $ do
+        ets <- onEvent steps . const . liftIO $ do
           pos <- cp_getPos body >>= cpVecToR2
           angle <- cp_getAngle body
           return (pos, eDir $ angle @@ rad)
@@ -361,7 +361,8 @@ initBody (DynSpace space steps) fixs setup = do
                 mct <- fromJSVal ctV
                 bct <- cp_getCollisionType body
                 case (mcps, mct) of
-                  (Just cps, Just t) -> runWithActions [
+                  (Just cps, Just t) -> runWithActions (
+                                          [
                                             et :=> Identity Arbiter { _aToCoP = CollisionCoefficients e u
                                                                     , _surfaceVel = sv
                                                                     , _otherBody = Body bodyV
@@ -369,7 +370,9 @@ initBody (DynSpace space steps) fixs setup = do
                                                                     , _thisCollisionType = toEnum bct
                                                                     , _contactPoints = cps
                                                                     }
-                                        ]
+                                          ]
+                                          , return ()
+                                        )
                   _ -> return ()
               _ <- ffi cb
               return $ releaseCallback cb
