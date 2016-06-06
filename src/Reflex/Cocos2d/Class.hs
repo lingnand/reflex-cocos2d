@@ -9,20 +9,19 @@ module Reflex.Cocos2d.Class where
 
 import Data.Dependent.Sum (DSum (..))
 import Data.Functor.Identity
+import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Fix
 import Control.Monad.Ref
-import Control.Monad.Exception
 import Control.Monad.Trans.Free
 import Control.Monad.Primitive
 import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
 
-class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
+class ( ReflexHost t, MonadIO m, MonadIO (HostFrame t), MonadFix m, MonadHold t m
       , MonadRef m, Ref m ~ Ref IO, MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
       , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
-      , MonadAsyncException m, MonadAsyncException (HostFrame t)
       -- XXX: is this good practice..?
       , PrimMonad m, PrimState m ~ PrimState IO)
       => NodeGraph t m where
@@ -42,6 +41,11 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
     -- | sequencing
     buildEvent :: Event t (m a) -> m (Event t a)
     buildEvent_ :: Event t (m a) -> m ()
+    -- misc operations
+    -- | Generate a new Event that delays the input Event by some frame
+    -- (normally fired in the immediate next frame); similar to
+    -- setTimeout(0)
+    delay :: Event t a -> m (Event t a)
     -- buildEventMaybe :: NodeGraph t m => Event t (m (Maybe a)) -> m (Event t a)
     -- buildEventMaybe = return . fmapMaybe id <=< buildEvent
     -- lower in power (no construction power, but performance-wise better)
@@ -49,15 +53,17 @@ class ( ReflexHost t, MonadIO m, MonadFix m, MonadHold t m
     runEventMaybe :: Event t (HostFrame t (Maybe a)) -> m (Event t a)
     runEvent_ :: Event t (HostFrame t ()) -> m ()
     runEvent :: Event t (HostFrame t a) -> m (Event t a)
+
     filterMEvent :: (a -> HostFrame t Bool) -> Event t a -> m (Event t a)
+    filterMEvent f e = runEventMaybe . ffor e $ \v -> do
+                            b <- f v
+                            return $ guard b >> return v
     onEventMaybe :: Event t a -> (a -> HostFrame t (Maybe b)) -> m (Event t b)
+    onEventMaybe e = runEventMaybe . ffor e
     onEvent :: Event t a -> (a -> HostFrame t b) -> m (Event t b)
+    onEvent e = runEvent . ffor e
     onEvent_ :: Event t a -> (a -> HostFrame t ()) -> m ()
-    -- misc operations
-    -- | Generate a new Event that delays the input Event by some frame
-    -- (normally fired in the immediate next frame); similar to
-    -- setTimeout(0)
-    delay :: Event t a -> m (Event t a)
+    onEvent_ e = runEvent_ . ffor e
 
 -- * Compositions
 -- | Embed

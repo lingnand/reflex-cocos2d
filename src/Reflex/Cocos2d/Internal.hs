@@ -80,7 +80,7 @@ instance MonadIO (Graph t) => PrimMonad (Graph t) where
     type PrimState (Graph t) = PrimState IO
     primitive = liftIO . primitive
 
-instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (HostFrame t)
+instance ( MonadIO (HostFrame t), Functor (HostFrame t)
          , MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
          , ReflexHost t ) => NodeGraph t (Graph t) where
     askParent = Graph $ view graphParent
@@ -130,12 +130,6 @@ instance ( MonadIO (HostFrame t), MonadAsyncException (HostFrame t), Functor (Ho
             _ -> return ()
       return eResult
     runEvent = runEventMaybe . fmap (Just <$>)
-    filterMEvent f e = runEventMaybe . ffor e $ \v -> do
-                            b <- f v
-                            return $ guard b >> return v
-    onEventMaybe e = runEventMaybe . ffor e
-    onEvent e = runEvent . ffor e
-    onEvent_ e = runEvent_ . ffor e
     -- this works because it forces a nested runWithActions call which has
     -- to be pushed pending and only fired when the current runWithActions
     -- finishes
