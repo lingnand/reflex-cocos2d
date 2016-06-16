@@ -16,7 +16,6 @@ module Reflex.Cocos2d.Internal
     ) where
 
 import Data.Dependent.Sum (DSum (..))
-import Data.Maybe
 import Data.IORef
 import Control.Monad
 import Control.Monad.Trans.Class
@@ -93,8 +92,7 @@ instance ( MonadIO (HostFrame t), Functor (HostFrame t)
         vas' <- Graph $ use graphVoidActions <* (graphVoidActions .= vas)
         let voidAction0 = mergeWith (flip (>>)) vas'
         (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
-        voidAction <- hold voidAction0 $ snd <$> newChildBuilt
-        runEvent_ $ switch voidAction
+        runEvent_ =<< switchPromptly voidAction0 (snd <$> newChildBuilt)
         runWithActions <- askRunWithActions
         onEvent_ newChild $ \(Graph g) -> do
             removeAllChildren p'
@@ -107,10 +105,13 @@ instance ( MonadIO (HostFrame t), Functor (HostFrame t)
     buildEvent newChild = do
         p <- askParent
         (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
-        voidActionDyn <- foldDynMaybe ?? never ?? (snd <$> newChildBuilt) $ \vas accE -> do
-                            _ <- listToMaybe vas
-                            return $ mergeWith (flip (>>)) (accE:vas)
-        runEvent_ $ switchPromptlyDyn voidActionDyn
+        rec let voidActionE = flip push newChildBuilt $ \case
+                              (_, []) -> return Nothing
+                              (_, vas) -> do
+                                acc <- sample behVa
+                                return . Just $ mergeWith (>>) (acc:reverse vas)
+            behVa <- hold never voidActionE
+        runEvent_ $ switch behVa
         runWithActions <- askRunWithActions
         onEvent_ newChild $ \(Graph g) -> do
             (postBuildE, postBuildTr) <- newEventWithTriggerRef
@@ -130,10 +131,13 @@ instance ( MonadIO (HostFrame t), Functor (HostFrame t)
             _ -> return ()
       return eResult
     runEvent = runEventMaybe . fmap (Just <$>)
+    -- | Generate a new Event that delays the input Event by some frame
+    -- (normally fired in the immediate next frame); similar to
+    -- setTimeout(0)
     -- this works because it forces a nested runWithActions call which has
     -- to be pushed pending and only fired when the current runWithActions
     -- finishes
-    delay = runEvent . fmap return
+    -- delay' = runEvent . fmap return
     askRunWithActions = Graph $ view graphRunWithActions
 
 -- the reason why we could do away with LOCKs and thread local storage in
@@ -158,7 +162,7 @@ mainScene :: Graph Spider a -> IO ()
 mainScene (Graph g) = do
     scene <- createScene
     recRef <- newIORef (False, [], []) -- (running, saved_dm)
-    runSpiderHost $ runHostFrame $ mdo
+    runSpiderHost $ mdo
         (postBuildE, postBuildTr) <- newEventWithTriggerRef
         let runWithActions (dm, aft) = do
               (running, saved, savedAft) <- readIORef recRef
@@ -179,7 +183,7 @@ mainScene (Graph g) = do
                         (_, saved, savedAft) <- readIORef recRef
                         process saved (aft++savedAft)
                   process dm [aft]
-        GraphState vas <- execStateT (runReaderT g (GraphEnv (toNode scene) postBuildE runWithActions)) (GraphState [])
+        GraphState vas <- runHostFrame $ execStateT (runReaderT g (GraphEnv (toNode scene) postBuildE runWithActions)) (GraphState [])
         voidActionHandle <- subscribeEvent $ mergeWith (flip (>>)) vas
         liftIO $ readRef postBuildTr >>= mapM_ (\t -> runWithActions ([t :=> Identity ()], return ()))
         runScene scene
