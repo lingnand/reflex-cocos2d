@@ -54,6 +54,7 @@ library
                        Reflex.Cocos2d.Internal,
                        Reflex.Cocos2d.Node,
                        Reflex.Cocos2d.Label,
+                       Reflex.Cocos2d.Armature,
                        Reflex.Cocos2d.Event,
                        Reflex.Cocos2d.Chipmunk,
                        Reflex.Cocos2d.Attributes,

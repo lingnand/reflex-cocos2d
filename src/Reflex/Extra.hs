@@ -7,6 +7,7 @@ module Reflex.Extra (
   , forMDyn
   , mapAccumMaybe
   , mapAccum
+  , mapAccumMaybe1
   , takeWhileE
   , dropWhileE
   , breakE
@@ -51,6 +52,15 @@ mapAccumMaybe f z e = do
 
 mapAccum :: (Reflex t, MonadHold t m, MonadFix m) => (a -> b -> (a, c)) -> a -> Event t b -> m (Event t c)
 mapAccum f = mapAccumMaybe $ \a b -> let (a', c) = f a b in (a', Just c)
+
+-- | A slight variation of mapAccumMaybe where we use the first event occurrence itself as the
+-- starting accumulator
+-- This is useful to, e.g., do concat based ops
+-- bothOccurred e1 e2 = mapAccumMaybe1 (\a b -> let a' = a <> b in (a', guard $ isThese a'))  (align e1 e2)
+mapAccumMaybe1 :: (Reflex t, MonadHold t m, MonadFix m) => (a -> a -> (a, Maybe c)) -> Event t a -> m (Event t c)
+mapAccumMaybe1 f e = mapAccumMaybe f' Nothing e
+  where f' Nothing a = (Just a, Nothing)
+        f' (Just a) a' =  let (a'', emitted) = f a a' in (Just a'', emitted)
 
 switchF' :: (Reflex t, MonadHold t m) => Free (Event t) a -> m (FreeF (Event t) a a)
 switchF' ft = case runFree ft of

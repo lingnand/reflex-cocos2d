@@ -1,3 +1,7 @@
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -9,11 +13,15 @@
 {-# LANGUAGE RecursiveDo #-}
 module Reflex.State
   (
-    DynStateT(DynStateT)
+    MonadDynReader(..)
+  , asksDyn
+  , DynReaderT
+  , runDynReaderT
+  , localDyn
+  , DynStateT
+  , liftDynReader
   , runDynStateT
   , execDynStateT
-  , askDyn
-  , asksDyn
   , zoomDyn
   , modifyDyn
   , modifyDynMaybe
@@ -34,6 +42,8 @@ import Reflex.Extra
 import Reflex.Host.Class
 import Reflex.Cocos2d.Class
 import Data.Maybe
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State
 {-
 rec uiEvents <- ...
     runDynStateT initial $ do modifyDyn $ (uiReducer :: UIAction -> s -> s) <$> uiEvents
@@ -99,25 +109,60 @@ sceneComponent = do
     -- modifyDyn $
 -}
 
+class Monad m => MonadDynReader r t m | m -> r t where
+    askDyn :: m (Dynamic t r)
+
+asksDyn :: (Reflex t, MonadDynReader r t m, MonadHold t m) => (r -> a) -> m (Dynamic t a)
+asksDyn f = askDyn >>= mapDyn f
+
+newtype DynReaderT r t m a = DynReaderT { _runDynReaderT :: (ReaderT (Dynamic t r) m a) }
+  deriving ( Functor, Applicative, Monad, MonadTrans, MonadFix, MonadIO
+           , MonadSample t, MonadHold t, MonadReflexCreateTrigger t, MonadSubscribeEvent t )
+
+instance MonadRef m => MonadRef (DynReaderT r t m) where
+    type Ref (DynReaderT r t m) = Ref m
+    newRef = lift . newRef
+    readRef = lift . readRef
+    writeRef r = lift . writeRef r
+
+instance PrimMonad m => PrimMonad (DynReaderT r t m) where
+    type PrimState (DynReaderT r t m) = PrimState m
+    primitive = lift . primitive
+
+instance Monad m => MonadDynReader r t (DynReaderT r t m) where
+    askDyn = DynReaderT ask
+
+instance NodeGraph t m => NodeGraph t (DynReaderT r t m) where
+    askParent = lift askParent
+    askPostBuildEvent = lift askPostBuildEvent
+    askRunWithActions = lift askRunWithActions
+    subGraph n rm = askDyn >>= lift . subGraph n . runDynReaderT rm
+    holdGraph n m emb = do
+      d <- askDyn
+      lift $ holdGraph n (runDynReaderT m d) (flip runDynReaderT d <$> emb)
+    buildEvent e = askDyn >>= lift . buildEvent . (<$> e) . flip runDynReaderT
+    buildEvent_ = void . buildEvent
+    runEventMaybe = lift . runEventMaybe
+    runEvent_ = lift . runEvent_
+    runEvent = lift . runEvent
+
+runDynReaderT :: DynReaderT r t m a -> Dynamic t r -> m a
+runDynReaderT = runReaderT . _runDynReaderT
+
+localDyn :: (Reflex t, MonadHold t m) => (r -> r') -> DynReaderT r' t m a -> DynReaderT r t m a
+localDyn f a = DynReaderT . ReaderT $ \d -> mapDyn f d >>= runDynReaderT a
 
 ---- generalization: DynStateT
 ---- the input is always the same - like a reader
-data DynStateT s t m a = DynStateT
-    { _runDynStateT :: !(Dynamic t s -> [Event t (s -> Maybe s)] -> m (a, [Event t (s -> Maybe s)])) }
+newtype DynStateT s t m a = DynStateT
+                          { _runDynStateT :: StateT [Event t (s -> Maybe s)] (DynReaderT s t m) a }
+  deriving (Functor, Applicative, Monad, MonadFix, MonadIO)
 
-instance Monad m => Functor (DynStateT s t m) where
-    fmap = liftM
+instance MonadTrans (DynStateT s t) where
+    lift = DynStateT . lift . lift
 
-instance Monad m => Applicative (DynStateT s t m) where
-    (<*>) = ap
-    pure = return
-
-instance Monad m => Monad (DynStateT s t m) where
-  m >>= k = DynStateT $ \d ts -> do
-              (a, ts') <- _runDynStateT m d ts
-              _runDynStateT (k a) d ts'
-  return a = DynStateT $ \_ ts -> return (a, ts)
-
+instance Monad m => MonadDynReader s t (DynStateT s t m) where
+    askDyn = DynStateT . lift $ askDyn
 
 {-# INLINE composeMaybe #-}
 composeMaybe :: (a -> Maybe a) -> (a -> Maybe a) -> (a -> Maybe a)
@@ -128,54 +173,42 @@ composeMaybe f g a
 runDynStateT :: (Reflex t, MonadHold t m, MonadFix m) => DynStateT s t m a -> s -> m (a, Dynamic t s)
 runDynStateT ms initial = mdo
     stateDyn <- foldDynMaybe ($) initial $ mergeWith composeMaybe ts
-    (a, ts) <- _runDynStateT ms stateDyn []
+    (a, ts) <- _runDynStateT' ms stateDyn []
     return (a, stateDyn)
 
+_runDynStateT' :: DynStateT s t m a -> Dynamic t s -> [Event t (s -> Maybe s) ] -> m (a, [Event t (s -> Maybe s)])
+_runDynStateT' ms d ts = flip runDynReaderT d . flip runStateT ts . _runDynStateT $ ms
+
+liftDynReader :: Monad m => DynReaderT s t m a -> DynStateT s t m a
+liftDynReader mr = DynStateT $ lift mr
 
 execDynStateT :: (Reflex t, MonadHold t m, MonadFix m) => DynStateT s t m a -> s -> m (Dynamic t s)
 execDynStateT ms initial = snd <$> runDynStateT ms initial
-
-askDyn :: Monad m => DynStateT s t m (Dynamic t s)
-askDyn = DynStateT $ \d ts -> return $ (d, ts)
-
-asksDyn :: (Reflex t, MonadHold t m) => (s -> a) -> DynStateT s t m (Dynamic t a)
-asksDyn f = DynStateT $ \d ts -> (,ts) <$> mapDyn f d
 
 zoomDyn :: (Reflex t, MonadHold t m, Eq a) => ALens' s a -> DynStateT a t m b -> DynStateT s t m b
 zoomDyn = zoomDyn' (/=)
 
 zoomDyn' :: (Reflex t, MonadHold t m) => (a -> a -> Bool) -> ALens' s a -> DynStateT a t m b -> DynStateT s t m b
-zoomDyn' p len am = DynStateT $ \ds ts -> do
+zoomDyn' p len am = do
     let clonedGetter = cloneLens len
         clonedSetter = cloneLens len
-    da <- mapDyn (^.clonedGetter) ds
-    (b, ta') <- _runDynStateT am (nubDynBy p da) []
+    da <- asksDyn (^.clonedGetter)
+    (b, ta') <- lift $ flip runDynReaderT (nubDynBy p da) . flip runStateT [] . _runDynStateT $ am
     let !lts = clonedSetter <$> mergeWith composeMaybe ta'
-    return (b, lts:ts)
+    modifyDynMaybe lts
+    return b
 
 modifyDyn :: (Reflex t, Monad m) => Event t (s -> s) -> DynStateT s t m ()
-modifyDyn et = let !et' = fmap Just <$> et in DynStateT $ \_ !ts -> return ((), et':ts)
+modifyDyn et = let !et' = fmap Just <$> et in DynStateT $ modify (et':)
 
 modifyDynMaybe :: Monad m => Event t (s -> Maybe s) -> DynStateT s t m ()
-modifyDynMaybe !et = DynStateT $ \_ !ts -> return ((), et:ts)
+modifyDynMaybe !et = DynStateT $ modify (et:)
 
-instance MonadTrans (DynStateT s t) where
-    lift m = DynStateT $ \_ ts -> (,ts) <$> m
-
-instance MonadIO m => MonadIO (DynStateT s t m) where
-    liftIO = lift . liftIO
-
--- TODO: implement all the reflex classes
 instance MonadSample t m => MonadSample t (DynStateT s t m) where
     sample = lift . sample
 
 instance MonadHold t m => MonadHold t (DynStateT s t m) where
     hold v0 = lift . hold v0
-
-instance MonadFix m => MonadFix (DynStateT s t m) where
-    mfix f = DynStateT $ \d ts -> mdo
-            (a, ts') <- _runDynStateT (f a) d ts
-            return (a, ts')
 
 instance MonadReflexCreateTrigger t m => MonadReflexCreateTrigger t (DynStateT s t m) where
     newEventWithTrigger = lift . newEventWithTrigger
@@ -194,25 +227,29 @@ instance PrimMonad m => PrimMonad (DynStateT s t m) where
     type PrimState (DynStateT s t m) = PrimState m
     primitive = lift . primitive
 
+
 -- implement NodeGraph instance so that we don't need to keep lifting...
 instance NodeGraph t m => NodeGraph t (DynStateT s t m) where
     askParent = lift $ askParent
     askPostBuildEvent = lift $ askPostBuildEvent
     askRunWithActions = lift $ askRunWithActions
-    subGraph n (DynStateT f) = DynStateT $ \d ts -> subGraph n (f d ts)
-    holdGraph n (DynStateT fa) emb = DynStateT $ \d ts -> do
-              ((a, tsZ), erb) <- holdGraph n (fa d []) $ ffor emb $ \(DynStateT fb) -> fb d []
-              let et = (mergeWith composeMaybe . snd) <$> erb
-                  tz = mergeWith composeMaybe tsZ
-              switched <- switchPromptly tz et
-              return ((a, fst <$> erb), switched:ts)
-    buildEvent e = DynStateT $ \d ts -> mdo
-              built <- buildEvent $ flip pushAlways e $ \(DynStateT fa) -> do
-                            t <- sample behT
-                            return $ fa d [t]
-              let et = (mergeWith composeMaybe . snd) <$> built
-              behT <- hold never et
-              return (fst <$> built, switch behT:ts)
+    subGraph n m = DynStateT . StateT $ \ts -> subGraph n (flip runStateT ts $ _runDynStateT m)
+    holdGraph n ma emb = do
+      d <- askDyn
+      ((a, tsZ), erb) <- lift $ holdGraph n (_runDynStateT' ma d []) $ ffor emb $ \mb -> _runDynStateT' mb d []
+      let et = (mergeWith composeMaybe . snd) <$> erb
+          tz = mergeWith composeMaybe tsZ
+      switchPromptly tz et >>= modifyDynMaybe
+      return (a, fst <$> erb)
+    buildEvent em = mdo
+      d <- askDyn
+      built <- lift . buildEvent $ flip pushAlways em $ \m -> do
+                    t <- sample behT
+                    return $ _runDynStateT' m d [t]
+      let et = (mergeWith composeMaybe . snd) <$> built
+      behT <- hold never et
+      modifyDynMaybe (switch behT)
+      return $ fst <$> built
     buildEvent_ = void . buildEvent
     runEventMaybe = lift . runEventMaybe
     runEvent_ = lift . runEvent_

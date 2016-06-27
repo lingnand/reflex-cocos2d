@@ -54,6 +54,8 @@ module Reflex.Cocos2d.Event
     , scrollViewEvents
     , sliderEvents
     , textFieldEvents
+    -- * Armature
+    , addArmatures
     -- * re-export the lower level
     , Touch(..)
     , loc
@@ -417,3 +419,19 @@ textFieldEvents w = do
     runWithActions <- askRunWithActions
     newEventWithTrigger $ \et ->
       setOnTextFieldEvent w $ \e -> runWithActions ([et :=> Identity e], return ())
+
+
+-------- Armature ----------
+
+addArmatures :: NodeGraph t m => [String]
+                              -> m (Event t Double, Event t ()) -- ^ (Event of percentage progress, Event when everything finishes)
+addArmatures files = do
+    l <- createArmatureFileInfoAsyncListener
+    addArmatureFileInfosAsync files l
+    runWithActions <- askRunWithActions
+    percentE <- newEventWithTrigger $ \et ->
+      setOnArmatureFileInfoAsyncProgress l $ \percent -> runWithActions ([et :=> Identity percent], return ())
+    -- count the number of percentE, all loading is finished when exactly the number of files is fired
+    finished <- dropWhileE (< 1) percentE
+    headFinished <- headE finished
+    return (percentE, () <$ headFinished)
