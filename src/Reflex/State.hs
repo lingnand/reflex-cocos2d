@@ -17,7 +17,7 @@ module Reflex.State
   , asksDyn
   , DynReaderT
   , runDynReaderT
-  , localDyn
+  , magnifyDyn
   , DynStateT
   , liftDynReader
   , runDynStateT
@@ -149,8 +149,8 @@ instance NodeGraph t m => NodeGraph t (DynReaderT r t m) where
 runDynReaderT :: DynReaderT r t m a -> Dynamic t r -> m a
 runDynReaderT = runReaderT . _runDynReaderT
 
-localDyn :: (Reflex t, MonadHold t m) => (r -> r') -> DynReaderT r' t m a -> DynReaderT r t m a
-localDyn f a = DynReaderT . ReaderT $ \d -> mapDyn f d >>= runDynReaderT a
+magnifyDyn :: (Reflex t, MonadHold t m) => (Getting r' r r') -> DynReaderT r' t m a -> DynReaderT r t m a
+magnifyDyn getter a = DynReaderT . ReaderT $ \d -> mapDyn (^.getter) d >>= runDynReaderT a
 
 ---- generalization: DynStateT
 ---- the input is always the same - like a reader

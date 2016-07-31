@@ -57,8 +57,8 @@ module Reflex.Cocos2d.Chipmunk
     , iterations
     , gravity
     , collisionType
-    , vel
-    , angularVel
+    , velocity
+    , angularVelocity
     , active
     , force
     , impulse
@@ -66,7 +66,7 @@ module Reflex.Cocos2d.Chipmunk
   where
 
 import Linear
-import Diagrams hiding (normal)
+import Diagrams hiding (normal, position, rotation)
 import Data.List
 import Data.Default
 import Data.Time.Clock
@@ -289,7 +289,7 @@ makeClassy ''CollisionEvents
 
 -- | DynBody is a body wrapped with Dynamic reflex components
 data DynBody t a b = DynBody { _cpBody :: b -- ^ Used for some reference related management
-                             , _transDyn :: Dynamic t (P2 Double, Direction V2 Double)
+                             , _transDyn :: Dynamic t Transform
                              , _dbToCe :: CollisionEvents t a
                              }
 makeLenses ''DynBody
@@ -343,14 +343,14 @@ initBody (DynSpace space steps) fixs setup = do
         cp_addShape space cps
     rec let dbody = DynBody body tDyn (CollisionEvents began postSolve separate)
         res <- setup dbody
-        currPos <- get body pos
-        currRot <- get body rot
+        currPos <- get body position
+        currRot <- get body rotation
         -- create the triggers for position and rotation
         ets <- onEvent steps . const . liftIO $ do
           pos <- cp_getPos body >>= cpVecToR2
           angle <- cp_getAngle body
-          return (pos, eDir $ angle @@ rad)
-        tDyn <- holdDyn (currPos, currRot) ets
+          return $ Transform pos (eDir $ angle @@ rad)
+        tDyn <- holdDyn (Transform currPos currRot) ets
         runWithActions <- askRunWithActions
         let convCallback ffi et = do
               cb <- syncCallback3 ThrowWouldBlock $ \a bodyV ctV -> do
@@ -424,35 +424,35 @@ bodyRotAttr = attrib getter setter
           setter b d = liftIO $ cp_setAngle (toBody b) (d^._theta.rad)
 
 instance {-# OVERLAPPING #-} MonadIO m => HasPosition Body m where
-    pos = bodyPosAttr
+    position = bodyPosAttr
 
 instance {-# OVERLAPPING #-} MonadIO m => HasRotation Body m where
-    rot = bodyRotAttr
+    rotation = bodyRotAttr
 
 instance {-# OVERLAPPING #-} MonadIO m => HasPosition DynamicBody m where
-    pos = bodyPosAttr
+    position = bodyPosAttr
 
 instance {-# OVERLAPPING #-} MonadIO m => HasRotation DynamicBody m where
-    rot = bodyRotAttr
+    rotation = bodyRotAttr
 
 instance {-# OVERLAPPING #-} (MonadIO m, IsBody b) => HasPosition (DynBody t a b) m where
-    pos = bodyPosAttr
+    position = bodyPosAttr
 
 instance {-# OVERLAPPING #-} (MonadIO m, IsBody b) => HasRotation (DynBody t a b) m where
-    rot = bodyRotAttr
+    rotation = bodyRotAttr
 
 collisionType :: (MonadIO m, Enum a, IsBody b) => Attrib (DynBody t a b) m a
 collisionType = attrib getter setter
   where getter b = liftIO $ toEnum <$> cp_getCollisionType (toBody b)
         setter b ct = liftIO $ cp_setCollisionType (toBody b) (fromEnum ct)
 
-vel :: (MonadIO m, IsDynamicBody b) => Attrib b m (V2 Double)
-vel = attrib getter setter
+velocity :: (MonadIO m, IsDynamicBody b) => Attrib b m (V2 Double)
+velocity = attrib getter setter
   where getter b = liftIO $ cp_getVel (toDynamicBody b) >>= cpVecToR2
         setter b v = liftIO $ r2ToCPVec v >>= cp_setVel (toDynamicBody b)
 
-angularVel :: (MonadIO m, IsDynamicBody b) => Attrib b m Double
-angularVel = attrib getter setter
+angularVelocity :: (MonadIO m, IsDynamicBody b) => Attrib b m Double
+angularVelocity = attrib getter setter
   where getter b = liftIO $ cp_getAngVel (toDynamicBody b)
         setter b = liftIO . cp_setAngVel (toDynamicBody b)
 

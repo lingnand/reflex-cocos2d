@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
@@ -26,11 +27,15 @@ module Reflex.Cocos2d.Attributes
   -- attrs --
   , HasPosition(..)
   , HasRotation(..)
+  , Transform(Transform)
+  , HasPos(..)
+  , HasRot(..)
+  , transform
   ) where
 
 import Data.Functor.Contravariant
 import Diagrams (P2, (^&), unp2, _x, _y, Direction, V2)
-import Control.Lens hiding (set, chosen)
+import Control.Lens hiding (set, chosen, transform)
 import Control.Monad
 import Control.Monad.IO.Class
 import Reflex.Host.Class
@@ -146,21 +151,34 @@ chosen = choose id
 ---- General Attribs ----
 
 class Monad m => HasPosition n m where
-  pos :: Attrib n m (P2 Double)
-  pos = attrib (\n -> (^&) <$> gx n <*> gy n)
+  position :: Attrib n m (P2 Double)
+  position = attrib (\n -> (^&) <$> gx n <*> gy n)
                (\n p -> let (x, y) = unp2 p in sx n x >> sy n y)
-    where Attrib' gx sx _ = posX
-          Attrib' gy sy _ = posY
-  posX :: Attrib n m Double
-  posX = Attrib' getter' setter' (\n u -> (^._x) <$> updater n (_x %~ u))
-    where Attrib' getter _ updater = pos
+    where Attrib' gx sx _ = positionX
+          Attrib' gy sy _ = positionY
+  positionX :: Attrib n m Double
+  positionX = Attrib' getter' setter' (\n u -> (^._x) <$> updater n (_x %~ u))
+    where Attrib' getter _ updater = position
           getter' n = (^._x) <$> getter n
           setter' n x = void $ updater n (_x .~ x)
-  posY :: Attrib n m Double
-  posY = Attrib' getter' setter' (\n u -> (^._y) <$> updater n (_y %~ u))
-    where Attrib' getter _ updater = pos
+  positionY :: Attrib n m Double
+  positionY = Attrib' getter' setter' (\n u -> (^._y) <$> updater n (_y %~ u))
+    where Attrib' getter _ updater = position
           getter' n = (^._y) <$> getter n
           setter' n y = void $ updater n (_y .~ y)
 
 class HasRotation n m where
-    rot :: Attrib n m (Direction V2 Double)
+  rotation :: Attrib n m (Direction V2 Double)
+
+-- Transform is the combination of position and rotation
+data Transform = Transform
+               { _transformPos :: P2 Double
+               , _transformRot :: Direction V2 Double
+               }
+makeFields ''Transform
+
+transform :: (HasPosition n m, HasRotation n m) => Attrib n m Transform
+transform = attrib (\n -> Transform <$> gp n <*> gr n)
+              (\n (Transform p r) -> sp n p >> sr n r)
+  where Attrib' gp sp _ = position
+        Attrib' gr sr _ = rotation

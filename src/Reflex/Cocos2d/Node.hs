@@ -113,9 +113,9 @@ sprite_ = void . sprite
 ---- Various Attributes ----
 
 instance (MonadIO m, IsNode n) => HasPosition n m where
-  pos = attrib getPosition setPosition
-  posX = attrib getX setX
-  posY = attrib getY setY
+  position = attrib getPosition setPosition
+  positionX = attrib getX setX
+  positionY = attrib getY setY
 
 -- | Convert rotation angle (CCW) to direction
 eDir :: Floating n => Angle n -> Direction V2 n
@@ -124,7 +124,7 @@ eDir = dir . e
 -- | cocos2d uses clockwise degree - we convert it to agnostic Direction (where xDir is *without*
 -- any rotation)
 instance (MonadIO m, IsNode n) => HasRotation n m where
-  rot = attrib getter setter
+  rotation = attrib getter setter
     where fromCC = eDir . (@@ deg) . negate
           toCC = negate . (^._theta.deg)
           getter = fmap fromCC . getRotation
