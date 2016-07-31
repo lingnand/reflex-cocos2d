@@ -54,6 +54,7 @@ module Reflex.Cocos2d.Chipmunk
     , dynamicBody
 
     -- attrs --
+    , fixtures
     , iterations
     , gravity
     , collisionType
@@ -147,6 +148,9 @@ foreign import javascript unsafe "$1.dist" cp_getDist :: JSVal -> IO Double
 ---- Body ----
 -- mass, moment
 foreign import javascript unsafe "new cp.Body($1, $2)" cp_createBody :: Double -> Double -> IO Body
+foreign import javascript unsafe "var shapes = $2.shapeList.slice(); for (var i = 0; i < shapes.length; i++) { $1.removeShape(shapes[i]); }" cp_removeAllShapes :: Space -> Body -> IO ()
+foreign import javascript unsafe "$1.setMass($2)" cp_setMass :: Body -> Double -> IO ()
+foreign import javascript unsafe "$1.setMoment($2)" cp_setMoment :: Body -> Double -> IO ()
 foreign import javascript unsafe "$1.setPos($2)" cp_setPos :: Body -> CPVec -> IO ()
 foreign import javascript unsafe "$1.setVel($2)" cp_setVel :: DynamicBody -> CPVec -> IO ()
 foreign import javascript unsafe "$1.getVel()" cp_getVel :: DynamicBody -> IO CPVec
@@ -164,7 +168,7 @@ foreign import javascript unsafe "$1.data.began = $2" cp_setCollisionBegan :: Bo
 foreign import javascript unsafe "$1.data.postSolve = $2" cp_setCollisionPostSolve :: Body -> Callback a -> IO ()
 foreign import javascript unsafe "$1.data.separate = $2" cp_setCollisionSeparate :: Body -> Callback a -> IO ()
 foreign import javascript unsafe "$1.isRogue()" cp_isRogue :: DynamicBody -> IO Bool
-foreign import javascript unsafe "$1.data.space" cp_getSpaceFromData :: DynamicBody -> IO Space
+foreign import javascript unsafe "$1.data.space" cp_getSpaceFromData :: Body -> IO Space
 foreign import javascript unsafe "if (!$2.space) { if ($1.isLocked()) { $1.addPostStepCallback(function() { $1.addBody($2); }); } else {  $1.addBody($2); } }" cp_smartAdd :: Space -> DynamicBody -> IO ()
 foreign import javascript unsafe "if ($2.space) { if ($1.isLocked()) { $1.addPostStepCallback(function() { $1.removeBody($2); }); } else {  $1.removeBody($2); } }" cp_smartRemove :: Space -> DynamicBody -> IO ()
 -- get body realtime info
@@ -316,31 +320,41 @@ calcMoment mass (Poly verts) = cp_momentForPoly mass <$> toJSVal (cpFlattenedVer
 cpFlattenedVerts :: [P2 Double] -> [Double]
 cpFlattenedVerts verts = foldl' (\a p -> p^._x:p^._y:a) [] verts
 
+updateFixs :: (NodeGraph t m, Enum a)
+         => Space
+         -> Body
+         -> [Fixture] -> IO ()
+updateFixs space body fixs = do
+    cp_removeAllShapes space body
+    -- loop through all the shapelist and use Space.removeShape on each one
+    totalMoment <- fmap sum . forM fixs $ \f -> calcMoment (f^.mass) (f^.shape)
+    let totalMass = sumOf (traverse.mass) fixs
+    cp_setMoment body totalMoment
+    cp_setMass body totalMass
+    -- add all the shapes
+    forM_ fixs $ \(Fixture shape _ (CollisionCoefficients elas fric) sensor) -> do
+      cps <- case shape of
+        Circle rad os -> cp_createCircleShape body rad =<< r2ToCPVec os
+        Segment rad a b -> do
+          a' <- r2ToCPVec a
+          b' <- r2ToCPVec b
+          cp_createSegment body a' b' rad
+        Poly verts -> cp_createPolyShape body =<< toJSVal (cpFlattenedVerts verts)
+      -- set up all the remaining details
+      cp_setElasticity cps elas
+      cp_setFriction cps fric
+      cp_setSensor cps sensor
+      cp_addShape space cps
+
+
 initBody :: (NodeGraph t m, Enum a)
          => DynSpace t
          -> [Fixture]
          -> (DynBody t a Body -> m b) -> m b
 initBody (DynSpace space steps) fixs setup = do
-    body <- liftIO $ do
-      totalMoment <- fmap sum . forM fixs $ \f -> calcMoment (f^.mass) (f^.shape)
-      let totalMass = sumOf (traverse.mass) fixs
-      cp_createBody totalMass totalMoment
-    liftIO $ do
-      cp_setupData body space
-      -- add all the shapes
-      forM_ fixs $ \(Fixture shape _ (CollisionCoefficients elas fric) sensor) -> do
-        cps <- case shape of
-          Circle rad os -> cp_createCircleShape body rad =<< r2ToCPVec os
-          Segment rad a b -> do
-            a' <- r2ToCPVec a
-            b' <- r2ToCPVec b
-            cp_createSegment body a' b' rad
-          Poly verts -> cp_createPolyShape body =<< toJSVal (cpFlattenedVerts verts)
-        -- set up all the remaining details
-        cp_setElasticity cps elas
-        cp_setFriction cps fric
-        cp_setSensor cps sensor
-        cp_addShape space cps
+    -- XXX: use 1 1 to bypass checks to create a body
+    body <- liftIO $ cp_createBody 1 1
+    liftIO $ cp_setupData body space
     rec let dbody = DynBody body tDyn (CollisionEvents began postSolve separate)
         res <- setup dbody
         currPos <- get body position
@@ -441,6 +455,13 @@ instance {-# OVERLAPPING #-} (MonadIO m, IsBody b) => HasPosition (DynBody t a b
 instance {-# OVERLAPPING #-} (MonadIO m, IsBody b) => HasRotation (DynBody t a b) m where
     rotation = bodyRotAttr
 
+-- ALL bodies should have a fixs property
+fixtures :: (MonadIO m, IsBody b) => SetOnlyAttrib (DynBody t a b) m [Fixture]
+fixtures = SetOnlyAttrib' $ \b fixs -> liftIO $ do
+    let b' = toBody b
+        sp = cp_getSpaceFromData b'
+    updateFixs sp b' fixs
+
 collisionType :: (MonadIO m, Enum a, IsBody b) => Attrib (DynBody t a b) m a
 collisionType = attrib getter setter
   where getter b = liftIO $ toEnum <$> cp_getCollisionType (toBody b)
@@ -461,7 +482,7 @@ active = attrib getter setter
   where getter b = liftIO $ not <$> cp_isRogue (toDynamicBody b)
         setter b a = liftIO $ do
           let b' = toDynamicBody b
-          sp <- cp_getSpaceFromData b'
+          sp <- cp_getSpaceFromData (toBody b)
           case a of
             True -> cp_smartAdd sp b'
             False -> cp_smartRemove sp b'
