@@ -320,10 +320,7 @@ calcMoment mass (Poly verts) = cp_momentForPoly mass <$> toJSVal (cpFlattenedVer
 cpFlattenedVerts :: [P2 Double] -> [Double]
 cpFlattenedVerts verts = foldl' (\a p -> p^._x:p^._y:a) [] verts
 
-updateFixs :: (NodeGraph t m, Enum a)
-         => Space
-         -> Body
-         -> [Fixture] -> IO ()
+updateFixs :: Space -> Body -> [Fixture] -> IO ()
 updateFixs space body fixs = do
     cp_removeAllShapes space body
     -- loop through all the shapelist and use Space.removeShape on each one
@@ -349,9 +346,8 @@ updateFixs space body fixs = do
 
 initBody :: (NodeGraph t m, Enum a)
          => DynSpace t
-         -> [Fixture]
          -> (DynBody t a Body -> m b) -> m b
-initBody (DynSpace space steps) fixs setup = do
+initBody (DynSpace space steps) setup = do
     -- XXX: use 1 1 to bypass checks to create a body
     body <- liftIO $ cp_createBody 1 1
     liftIO $ cp_setupData body space
@@ -398,15 +394,15 @@ initBody (DynSpace space steps) fixs setup = do
 
 staticBody :: (NodeGraph t m, Enum a)
            => DynSpace t
-           -> [Fixture] -> [Prop (DynBody t a Body) m]
+           -> [Prop (DynBody t a Body) m]
            -> m (DynBody t a Body)
-staticBody dspace fixs props = initBody dspace fixs $ \db -> set db props >> return db
+staticBody dspace props = initBody dspace $ \db -> set db props >> return db
 
 dynamicBody :: (NodeGraph t m, Enum a, Eq a)
             => DynSpace t
-            -> [Fixture] -> [Prop (DynBody t a DynamicBody) m]
+            -> [Prop (DynBody t a DynamicBody) m]
             -> m (DynBody t a DynamicBody)
-dynamicBody dspace fixs props = initBody dspace fixs $ \db -> do
+dynamicBody dspace props = initBody dspace $ \db -> do
         let (DynBody (Body bv) tDyn ce) = db
         -- XXX: cast to DynamicBody
         let db' = DynBody (DynamicBody bv) tDyn ce
@@ -459,7 +455,7 @@ instance {-# OVERLAPPING #-} (MonadIO m, IsBody b) => HasRotation (DynBody t a b
 fixtures :: (MonadIO m, IsBody b) => SetOnlyAttrib (DynBody t a b) m [Fixture]
 fixtures = SetOnlyAttrib' $ \b fixs -> liftIO $ do
     let b' = toBody b
-        sp = cp_getSpaceFromData b'
+    sp <- cp_getSpaceFromData b'
     updateFixs sp b' fixs
 
 collisionType :: (MonadIO m, Enum a, IsBody b) => Attrib (DynBody t a b) m a
