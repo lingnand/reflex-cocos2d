@@ -13,18 +13,19 @@
 {-# LANGUAGE RecursiveDo #-}
 module Reflex.State
   (
-    MonadDynReader(..)
-  , asksDyn
-  , DynReaderT
-  , runDynReaderT
-  , magnifyDyn
+    AccStateT
   , DynStateT
-  , liftDynReader
-  , runDynStateT
-  , execDynStateT
-  , zoomDyn
-  , modifyDyn
-  , modifyDynMaybe
+  , EventStateT
+  , UniqDynStateT
+  , BehaviorStateT
+  , watch
+  , watches
+  , focus
+  , refine
+  , runAccStateT
+  , execAccStateT
+  , adjust
+  , adjustMaybe
   , pnon
   , pnon'
   ) where
@@ -36,9 +37,7 @@ import Control.Monad.Fix
 import Control.Monad.Trans.Class
 import Control.Monad.IO.Class
 import Control.Monad.Ref
-import Control.Monad.Primitive
 import Reflex
-import Reflex.Extra
 import Reflex.Host.Class
 import Reflex.Cocos2d.Class
 import Data.Maybe
@@ -46,7 +45,7 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 {-
 rec uiEvents <- ...
-    runDynStateT initial $ do modifyDyn $ (uiReducer :: UIAction -> s -> s) <$> uiEvents
+    runAccStateT initial $ do adjust $ (uiReducer :: UIAction -> s -> s) <$> uiEvents
                               viewComponent1
                               -- drillDownToSubState should be some lens
                               zoom1 drillDownToSubState $ viewComponent2
@@ -80,15 +79,15 @@ data SceneState = Scene1 ... | Scene2 ... | ...
 
 -- is this whole thing a recipe for miserable performance?
 
-sceneEntryComponent :: DynStateT AppState t m ()
+sceneEntryComponent :: AccStateT AppState t m ()
 sceneEntryComponent = do
   -- sceneChangeDyn <- asks (^.sceneState) -- here maybe take (^.sceneState) but needs to look for false state change caused by sharedState
-  -- (modifyDyn =<<) . lift $ do
+  -- (adjust =<<) . lift $ do
   --   scenes <- forDyn sceneChangeDyn $ \initialSceneAppState -> do
   --       -- case by case for different sceneState
   --       -- TODO: looks like some lens operation to me!
   --       AppState shared (Scene1 scene1Data) <- initialSceneAppState
-  --       (scene2DataEvt, sceneStateDyn) <- flip runDynStateT (shared, scene1Data) $ do viewSceneComponents
+  --       (scene2DataEvt, sceneStateDyn) <- flip runAccStateT (shared, scene1Data) $ do viewSceneComponents
   --                                                                                     -- something else...
   --       -- TODO: looks like some lens operation to me!
   --       return $ leftmost [ (\(shared, scene1Data) _ -> AppState shared (Scene1 scene1Data)) <$> (updated sceneStateDyn)
@@ -99,70 +98,35 @@ sceneEntryComponent = do
   --   transformerE <- sceneContainer -< scenes
   --   switchPromptly never transformerE
   --  take advantage of Free here
-  sceneContainer -<< (sceneComponent :: FreeT (Event t) (DynStateT s t m) a)
+  sceneContainer -<< (sceneComponent :: FreeT (Event t) (AccStateT s t m) a)
 
 
-sceneComponent :: FreeT (Event t) (DynStateT AppState t m) ()
+sceneComponent :: FreeT (Event t) (AccStateT AppState t m) ()
 sceneComponent = do
   lift $ do
     -- <- ask state
-    -- modifyDyn $
+    -- adjust $
 -}
 
-class Monad m => MonadDynReader r t m | m -> r t where
-    askDyn :: m (Dynamic t r)
-
-asksDyn :: (Reflex t, MonadDynReader r t m, MonadHold t m) => (r -> a) -> m (Dynamic t a)
-asksDyn f = askDyn >>= mapDyn f
-
-newtype DynReaderT r t m a = DynReaderT { _runDynReaderT :: (ReaderT (Dynamic t r) m a) }
-  deriving ( Functor, Applicative, Monad, MonadTrans, MonadFix, MonadIO
-           , MonadSample t, MonadHold t, MonadReflexCreateTrigger t, MonadSubscribeEvent t )
-
-instance MonadRef m => MonadRef (DynReaderT r t m) where
-    type Ref (DynReaderT r t m) = Ref m
-    newRef = lift . newRef
-    readRef = lift . readRef
-    writeRef r = lift . writeRef r
-
-instance PrimMonad m => PrimMonad (DynReaderT r t m) where
-    type PrimState (DynReaderT r t m) = PrimState m
-    primitive = lift . primitive
-
-instance Monad m => MonadDynReader r t (DynReaderT r t m) where
-    askDyn = DynReaderT ask
-
-instance NodeGraph t m => NodeGraph t (DynReaderT r t m) where
-    askParent = lift askParent
-    askPostBuildEvent = lift askPostBuildEvent
-    askRunWithActions = lift askRunWithActions
-    subGraph n rm = askDyn >>= lift . subGraph n . runDynReaderT rm
-    holdGraph n m emb = do
-      d <- askDyn
-      lift $ holdGraph n (runDynReaderT m d) (flip runDynReaderT d <$> emb)
-    buildEvent e = askDyn >>= lift . buildEvent . (<$> e) . flip runDynReaderT
-    buildEvent_ = void . buildEvent
-    runEventMaybe = lift . runEventMaybe
-    runEvent_ = lift . runEvent_
-    runEvent = lift . runEvent
-
-runDynReaderT :: DynReaderT r t m a -> Dynamic t r -> m a
-runDynReaderT = runReaderT . _runDynReaderT
-
-magnifyDyn :: (Reflex t, MonadHold t m) => (Getting r' r r') -> DynReaderT r' t m a -> DynReaderT r t m a
-magnifyDyn getter a = DynReaderT . ReaderT $ \d -> mapDyn (^.getter) d >>= runDynReaderT a
-
----- generalization: DynStateT
+---- generalization: AccStateT
 ---- the input is always the same - like a reader
-newtype DynStateT s t m a = DynStateT
-                          { _runDynStateT :: StateT [Event t (s -> Maybe s)] (DynReaderT s t m) a }
+newtype AccStateT t f s m a = AccStateT
+                            { _runAccStateT :: StateT [Event t (s -> Maybe s)] (ReaderT (f s) m) a }
   deriving (Functor, Applicative, Monad, MonadFix, MonadIO)
 
-instance MonadTrans (DynStateT s t) where
-    lift = DynStateT . lift . lift
+type DynStateT t = AccStateT t (Dynamic t)
+type EventStateT t = AccStateT t (Event t)
+type UniqDynStateT t = AccStateT t (UniqDynamic t)
+type BehaviorStateT t = AccStateT t (Behavior t)
 
-instance Monad m => MonadDynReader s t (DynStateT s t m) where
-    askDyn = DynStateT . lift $ askDyn
+instance MonadTrans (AccStateT t f s) where
+    lift = AccStateT . lift . lift
+
+watch :: Monad m => AccStateT t f s m (f s)
+watch = AccStateT . lift $ ask
+
+watches :: (Functor f, Monad m) => (s -> a) -> AccStateT t f s m (f a)
+watches f = fmap f <$> watch
 
 {-# INLINE composeMaybe #-}
 composeMaybe :: (a -> Maybe a) -> (a -> Maybe a) -> (a -> Maybe a)
@@ -170,85 +134,80 @@ composeMaybe f g a
   | Just a' <- g a = f a'
   | otherwise      = f a
 
-runDynStateT :: (Reflex t, MonadHold t m, MonadFix m) => DynStateT s t m a -> s -> m (a, Dynamic t s)
-runDynStateT ms initial = mdo
-    stateDyn <- foldDynMaybe ($) initial $ mergeWith composeMaybe ts
-    (a, ts) <- _runDynStateT' ms stateDyn []
+runAccStateT :: (Accumulator t f, MonadHold t m, MonadFix m) => AccStateT t f s m a -> s -> m (a, f s)
+runAccStateT ms initial = mdo
+    stateDyn <- accumMaybe (&) initial $ mergeWith composeMaybe ts
+    (a, ts) <- _runAccStateT' ms stateDyn []
     return (a, stateDyn)
 
-_runDynStateT' :: DynStateT s t m a -> Dynamic t s -> [Event t (s -> Maybe s) ] -> m (a, [Event t (s -> Maybe s)])
-_runDynStateT' ms d ts = flip runDynReaderT d . flip runStateT ts . _runDynStateT $ ms
+_runAccStateT' :: AccStateT t f s m a -> f s -> [Event t (s -> Maybe s)] -> m (a, [Event t (s -> Maybe s)])
+_runAccStateT' ms d ts = flip runReaderT d . flip runStateT ts . _runAccStateT $ ms
 
-liftDynReader :: Monad m => DynReaderT s t m a -> DynStateT s t m a
-liftDynReader mr = DynStateT $ lift mr
+execAccStateT :: (Accumulator t f, MonadHold t m, MonadFix m) => AccStateT t f s m a -> s -> m (f s)
+execAccStateT ms initial = snd <$> runAccStateT ms initial
 
-execDynStateT :: (Reflex t, MonadHold t m, MonadFix m) => DynStateT s t m a -> s -> m (Dynamic t s)
-execDynStateT ms initial = snd <$> runDynStateT ms initial
-
-zoomDyn :: (Reflex t, MonadHold t m, Eq a) => ALens' s a -> DynStateT a t m b -> DynStateT s t m b
-zoomDyn = zoomDyn' (/=)
-
-zoomDyn' :: (Reflex t, MonadHold t m) => (a -> a -> Bool) -> ALens' s a -> DynStateT a t m b -> DynStateT s t m b
-zoomDyn' p len am = do
+focus :: (Reflex t, MonadHold t m, Functor f) => ALens' s a -> AccStateT t f a m b -> AccStateT t f s m b
+focus len am = do
     let clonedGetter = cloneLens len
         clonedSetter = cloneLens len
-    da <- asksDyn (^.clonedGetter)
-    (b, ta') <- lift $ flip runDynReaderT (nubDynBy p da) . flip runStateT [] . _runDynStateT $ am
+    da <- watches (^.clonedGetter)
+    (b, ta') <- lift $ _runAccStateT' am da []
     let !lts = clonedSetter <$> mergeWith composeMaybe ta'
-    modifyDynMaybe lts
+    adjustMaybe lts
     return b
 
-modifyDyn :: (Reflex t, Monad m) => Event t (s -> s) -> DynStateT s t m ()
-modifyDyn et = let !et' = fmap Just <$> et in DynStateT $ modify (et':)
+refine :: (f2 a -> f1 a) -> AccStateT t f1 a m b -> AccStateT t f2 a m b
+refine f m = AccStateT . StateT $ \ts -> ReaderT $ \d -> _runAccStateT' m (f d) ts
 
-modifyDynMaybe :: Monad m => Event t (s -> Maybe s) -> DynStateT s t m ()
-modifyDynMaybe !et = DynStateT $ modify (et:)
+adjust :: (Reflex t, Monad m) => Event t (s -> s) -> AccStateT t f s m ()
+adjust et = let !et' = fmap Just <$> et in AccStateT $ modify (et':)
 
-instance MonadSample t m => MonadSample t (DynStateT s t m) where
+adjustMaybe :: Monad m => Event t (s -> Maybe s) -> AccStateT t f s m ()
+adjustMaybe !et = AccStateT $ modify (et:)
+
+instance MonadSample t m => MonadSample t (AccStateT t f s m) where
     sample = lift . sample
 
-instance MonadHold t m => MonadHold t (DynStateT s t m) where
+instance MonadHold t m => MonadHold t (AccStateT t f s m) where
     hold v0 = lift . hold v0
+    holdDyn v0 = lift . holdDyn v0
+    holdIncremental v0 = lift . holdIncremental v0
 
-instance MonadReflexCreateTrigger t m => MonadReflexCreateTrigger t (DynStateT s t m) where
+instance MonadReflexCreateTrigger t m => MonadReflexCreateTrigger t (AccStateT t f s m) where
     newEventWithTrigger = lift . newEventWithTrigger
     newFanEventWithTrigger = lift . newFanEventWithTrigger
 
-instance MonadSubscribeEvent t m => MonadSubscribeEvent t (DynStateT s t m) where
+instance MonadSubscribeEvent t m => MonadSubscribeEvent t (AccStateT t f s m) where
     subscribeEvent = lift . subscribeEvent
 
-instance MonadRef m => MonadRef (DynStateT s t m) where
-    type Ref (DynStateT s t m) = Ref m
+instance MonadRef m => MonadRef (AccStateT t f s m) where
+    type Ref (AccStateT t f s m) = Ref m
     newRef = lift . newRef
     readRef = lift . readRef
     writeRef r = lift . writeRef r
 
-instance PrimMonad m => PrimMonad (DynStateT s t m) where
-    type PrimState (DynStateT s t m) = PrimState m
-    primitive = lift . primitive
-
 
 -- implement NodeGraph instance so that we don't need to keep lifting...
-instance NodeGraph t m => NodeGraph t (DynStateT s t m) where
+instance NodeGraph t m => NodeGraph t (AccStateT t f s m) where
     askParent = lift $ askParent
     askPostBuildEvent = lift $ askPostBuildEvent
     askRunWithActions = lift $ askRunWithActions
-    subGraph n m = DynStateT . StateT $ \ts -> subGraph n (flip runStateT ts $ _runDynStateT m)
+    subGraph n m = AccStateT . StateT $ \ts -> ReaderT $ \d -> subGraph n (_runAccStateT' m d ts)
     holdGraph n ma emb = do
-      d <- askDyn
-      ((a, tsZ), erb) <- lift $ holdGraph n (_runDynStateT' ma d []) $ ffor emb $ \mb -> _runDynStateT' mb d []
+      d <- watch
+      ((a, tsZ), erb) <- lift $ holdGraph n (_runAccStateT' ma d []) $ ffor emb $ \mb -> _runAccStateT' mb d []
       let et = (mergeWith composeMaybe . snd) <$> erb
           tz = mergeWith composeMaybe tsZ
-      switchPromptly tz et >>= modifyDynMaybe
+      switchPromptly tz et >>= adjustMaybe
       return (a, fst <$> erb)
     buildEvent em = mdo
-      d <- askDyn
+      d <- watch
       built <- lift . buildEvent $ flip pushAlways em $ \m -> do
                     t <- sample behT
-                    return $ _runDynStateT' m d [t]
+                    return $ _runAccStateT' m d [t]
       let et = (mergeWith composeMaybe . snd) <$> built
-      behT <- hold never et
-      modifyDynMaybe (switch behT)
+      behT :: Behavior t (Event t (s -> Maybe s)) <- hold (never :: Event t (s -> Maybe s)) et
+      adjustMaybe $ switch behT
       return $ fst <$> built
     buildEvent_ = void . buildEvent
     runEventMaybe = lift . runEventMaybe

@@ -25,7 +25,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Exception
-import Control.Monad.Primitive
 import Control.Lens
 import Reflex
 import Reflex.Host.Class
@@ -49,24 +48,26 @@ makeLenses ''GraphState
 newtype Graph t a = Graph (ReaderT (GraphEnv t) (StateT (GraphState t) (HostFrame t)) a)
 
 deriving instance Functor (HostFrame t) => Functor (Graph t)
-deriving instance (Monad (HostFrame t), Applicative (HostFrame t)) => Applicative (Graph t)
+deriving instance Monad (HostFrame t) => Applicative (Graph t)
 deriving instance Monad (HostFrame t) => Monad (Graph t)
 deriving instance MonadFix (HostFrame t) => MonadFix (Graph t)
 deriving instance MonadIO (HostFrame t) => MonadIO (Graph t)
 deriving instance MonadException (HostFrame t) => MonadException (Graph t)
 deriving instance MonadAsyncException (HostFrame t) => MonadAsyncException (Graph t)
 
-instance MonadSample t (HostFrame t) => MonadSample t (Graph t) where
+instance (Reflex t, MonadSample t (HostFrame t)) => MonadSample t (Graph t) where
     sample = Graph . lift . lift . sample
 
-instance MonadHold t (HostFrame t) => MonadHold t (Graph t) where
+instance (Reflex t, MonadHold t (HostFrame t)) => MonadHold t (Graph t) where
     hold v0 = Graph . lift . lift . hold v0
+    holdDyn v0 = Graph . lift . lift . holdDyn v0
+    holdIncremental v0 = Graph . lift . lift . holdIncremental v0
 
 instance MonadReflexCreateTrigger t (HostFrame t) => MonadReflexCreateTrigger t (Graph t) where
     newEventWithTrigger = Graph . lift . lift . newEventWithTrigger
     newFanEventWithTrigger = Graph . lift . lift . newFanEventWithTrigger
 
-instance MonadSubscribeEvent t (HostFrame t) => MonadSubscribeEvent t (Graph t) where
+instance (Reflex t, MonadSubscribeEvent t (HostFrame t)) => MonadSubscribeEvent t (Graph t) where
     subscribeEvent = Graph . lift . lift . subscribeEvent
 
 instance MonadRef (HostFrame t) => MonadRef (Graph t) where
@@ -74,10 +75,6 @@ instance MonadRef (HostFrame t) => MonadRef (Graph t) where
     newRef = Graph . lift . lift . newRef
     readRef = Graph . lift . lift . readRef
     writeRef r = Graph . lift . lift . writeRef r
-
-instance MonadIO (Graph t) => PrimMonad (Graph t) where
-    type PrimState (Graph t) = PrimState IO
-    primitive = liftIO . primitive
 
 instance ( MonadIO (HostFrame t), Functor (HostFrame t)
          , MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
@@ -105,13 +102,10 @@ instance ( MonadIO (HostFrame t), Functor (HostFrame t)
     buildEvent newChild = do
         p <- askParent
         (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
-        rec let voidActionE = flip push newChildBuilt $ \case
-                              (_, []) -> return Nothing
-                              (_, vas) -> do
-                                acc <- sample behVa
-                                return . Just $ mergeWith (>>) (acc:reverse vas)
-            behVa <- hold never voidActionE
-        runEvent_ $ switch behVa
+        let onNewChildBuilt :: Event t (HostFrame t ()) -> (a, [Event t (HostFrame t ())]) -> Maybe (Event t (HostFrame t ()))
+            onNewChildBuilt _ (_, []) = Nothing
+            onNewChildBuilt acc (_, vas) = Just $ mergeWith (>>) (acc:reverse vas)
+        runEvent_ . switch =<< accumMaybe onNewChildBuilt (never :: Event t (HostFrame t ())) newChildBuilt
         runWithActions <- askRunWithActions
         onEvent_ newChild $ \(Graph g) -> do
             (postBuildE, postBuildTr) <- newEventWithTriggerRef

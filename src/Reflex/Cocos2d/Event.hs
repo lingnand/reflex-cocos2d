@@ -33,12 +33,12 @@ module Reflex.Cocos2d.Event
     -- * Time
     , ticks
     , dilate
+    -- * Rand
+    , runRandEvent
     -- , ticks'
     , delay
     -- * Async
     , load
-    -- * Rand
-    , picks
     -- * Utility
     , nodeContains
     -- * Reflex Utilities
@@ -84,17 +84,18 @@ module Reflex.Cocos2d.Event
 
 import Diagrams (P2)
 import Diagrams.BoundingBox
+import Data.Tuple
 import Data.Time.Clock
 import qualified Data.Set as S
 import Data.Dependent.Sum (DSum (..))
 import Data.GADT.Compare.TH
 import Control.Monad
+import Control.Monad.Random
 import Control.Monad.Trans.Free
 import Control.Monad.Fix
 import Control.Monad.IO.Class
 import Control.Lens hiding (contains)
 import Control.Monad.Ref
-import Math.Probable hiding (Event, never)
 import Reflex
 import Reflex.Extra
 import Reflex.Host.Class
@@ -249,13 +250,13 @@ uiEvents = do
 
 -- | Convenience function to obtain currently held keys
 dynKeysDown :: (Reflex t, MonadHold t m, MonadFix m) => Event t Key -> Event t Key -> m (Dynamic t (S.Set Key))
-dynKeysDown keyPressed keyReleased = foldDynMaybe ($) S.empty $ leftmost [ ffor keyPressed $ \k m -> do
-                                                                              -- since KeyPressed event can keep firing
-                                                                              -- we block non-changing events
-                                                                              guard . not $ k `S.member` m
-                                                                              return $ S.insert k m
-                                                                         , ffor keyReleased $ fmap Just . S.delete
-                                                                         ]
+dynKeysDown keyPressed keyReleased = accumMaybe (&) S.empty $ leftmost [ ffor keyPressed $ \k m -> do
+                                                                            -- since KeyPressed event can keep firing
+                                                                            -- we block non-changing events
+                                                                            guard . not $ k `S.member` m
+                                                                            return $ S.insert k m
+                                                                       , ffor keyReleased $ fmap Just . S.delete
+                                                                       ]
 
 nodeContains :: (MonadIO m, IsNode n) => n -> (P2 Double) -> m Bool
 nodeContains n p = do
@@ -286,10 +287,10 @@ dragged (SingleTouchEvents began moved ended _) = do
 
 -- | Modulate a ticker
 dilate :: (Reflex t, MonadHold t m, MonadFix m, Num a, Ord a) => a -> Event t a -> m (Event t a)
-dilate limit = flip mapAccumMaybe (0, limit) $ \(acc, l) d ->
-                    let sum = acc + d in
-                    if sum > l then ((0, limit-(sum-l)), Just sum)
-                               else ((sum, l), Nothing)
+dilate limit = mapAccumMaybe_ f (0, limit)
+    where f (acc, l) d = let sum = acc + d in
+                         if sum > l then (Just (0  , limit-(sum-l)) , Just sum)
+                                    else (Just (sum, l            ) , Nothing )
 
 -- | Get the tick per frame
 ticks :: NodeGraph t m => m (Event t NominalDiffTime)
@@ -304,9 +305,10 @@ ticks = do
 --     newEventWithTrigger $ \et ->
 --         scheduleUpdate' interval True $ \d -> runWithActions [et :=> Identity d]
 
--- | Sample a value out of each RandT on each new event
-picks :: (NodeGraph t m) => Event t (RandT IO a) -> RandT m (Event t a)
-picks evt = RandT $ \g -> onEvent evt $ \rt -> liftIO $ runRandT rt g
+runRandEvent :: NodeGraph t m => Event t (Rand StdGen a) -> m (Event t a)
+runRandEvent rands = do
+    g <- liftIO newStdGen
+    mapAccum_ (\g comp -> swap $ runRand comp g) g rands
 
 -- | Delay an Event by the given amount of time
 delay :: NodeGraph t m => NominalDiffTime -> Event t a -> m (Event t a)

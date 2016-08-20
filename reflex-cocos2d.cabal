@@ -59,7 +59,8 @@ library
                        Reflex.Cocos2d.Chipmunk,
                        Reflex.Cocos2d.Attributes,
                        Reflex.Extra,
-                       Reflex.State
+                       Reflex.State,
+                       Control.Monad.Random.Extra
   
   -- Modules included in this library but not exported.
   -- other-modules:       
@@ -69,7 +70,7 @@ library
   -- other-extensions:    
   
   -- Other library packages from which modules are imported.
-  build-depends:       base >=4.8 && <4.9,
+  build-depends:       base >=4.8 && <4.10,
                        containers,
                        transformers,
                        ref-tf,
@@ -83,9 +84,7 @@ library
                        lens,
                        time,
                        data-default,
-                       primitive,
-                       probable,
-                       mwc-random,
+                       MonadRandom,
                        contravariant,
                        free,
                        ghcjs-base,

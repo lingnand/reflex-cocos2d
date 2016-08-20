@@ -2,13 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 module Reflex.Extra (
-    nubDynBy
-  , mapMDyn
-  , forMDyn
-  , mapAccumMaybe
-  , mapAccum
-  , mapAccumMaybe1
-  , takeWhileE
+    takeWhileE
   , dropWhileE
   , breakE
   , switchF'
@@ -24,44 +18,6 @@ import Data.Maybe
 import Control.Applicative
 import Control.Lens
 
-nubDynBy :: Reflex t => (a -> a -> Bool) -> Dynamic t a -> Dynamic t a
-nubDynBy p d =
-    let e' = attachWithMaybe (\x x' -> guard (p x x') >> return x') (current d) (updated d)
-    in unsafeDynamic (current d) e' --TODO: Avoid invalidating the outgoing Behavior
-
-mapMDyn :: forall t m a b. (Reflex t, MonadSample t m, MonadHold t m, MonadFix m)
-        => (forall m'. (MonadSample t m', MonadHold t m', MonadFix m') => a -> m' b)
-        -> Dynamic t a
-        -> m (Dynamic t b)
-mapMDyn f dyn = do
-  z <- f =<< sample (current dyn)
-  holdDyn z $ pushAlways f (updated dyn)
-
-forMDyn :: forall t m a b. (Reflex t, MonadSample t m, MonadHold t m, MonadFix m)
-        =>  Dynamic t a
-        -> (forall m'. (MonadSample t m', MonadHold t m', MonadFix m') => a -> m' b)
-        -> m (Dynamic t b)
-forMDyn dyn f = do
-  z <- f =<< sample (current dyn)
-  holdDyn z $ pushAlways f (updated dyn)
-
-mapAccumMaybe :: (Reflex t, MonadHold t m, MonadFix m) => (a -> b -> (a, Maybe c)) -> a -> Event t b -> m (Event t c)
-mapAccumMaybe f z e = do
-    e' <- foldDyn (\b (a, _) -> f a b) (z, Nothing) e
-    return . fmapMaybe snd $ updated e'
-
-mapAccum :: (Reflex t, MonadHold t m, MonadFix m) => (a -> b -> (a, c)) -> a -> Event t b -> m (Event t c)
-mapAccum f = mapAccumMaybe $ \a b -> let (a', c) = f a b in (a', Just c)
-
--- | A slight variation of mapAccumMaybe where we use the first event occurrence itself as the
--- starting accumulator
--- This is useful to, e.g., do concat based ops
--- bothOccurred e1 e2 = mapAccumMaybe1 (\a b -> let a' = a <> b in (a', guard $ isThese a'))  (align e1 e2)
-mapAccumMaybe1 :: (Reflex t, MonadHold t m, MonadFix m) => (a -> a -> (a, Maybe c)) -> Event t a -> m (Event t c)
-mapAccumMaybe1 f e = mapAccumMaybe f' Nothing e
-  where f' Nothing a = (Just a, Nothing)
-        f' (Just a) a' =  let (a'', emitted) = f a a' in (Just a'', emitted)
-
 switchF' :: (Reflex t, MonadHold t m) => Free (Event t) a -> m (FreeF (Event t) a a)
 switchF' ft = case runFree ft of
     Pure a -> return $ Pure a
@@ -75,7 +31,7 @@ takeWhileE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a 
 takeWhileE f e = do
     let gateE = fforMaybe e $ \a -> guard (not $ f a) >> return False
     gateDyn <- holdDyn True gateE
-    let e' = attachDynWithMaybe (\g a -> guard g >> return a) gateDyn e
+    let e' = attachPromptlyDynWithMaybe (\g a -> guard g >> return a) gateDyn e
     return . switch =<< hold e' =<< headE (never <$ gateE)
 
 -- | Efficiently cut off a stream of events at a point
@@ -89,7 +45,7 @@ breakE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m
 breakE f e = do
     let gateE = fforMaybe e $ \a -> guard (not $ f a) >> return False
     gateDyn <- holdDyn True gateE
-    let e' = attachDynWithMaybe (\g a -> guard g >> return a) gateDyn e
+    let e' = attachPromptlyDynWithMaybe (\g a -> guard g >> return a) gateDyn e
     gateE' <- headE gateE
     bef <- switch <$> hold e' (never <$ gateE')
     aft <- switchPromptly never (e <$ gateE')

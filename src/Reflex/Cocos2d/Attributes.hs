@@ -19,6 +19,8 @@ module Reflex.Cocos2d.Attributes
   , set
   , dyn
   , dyn'
+  , uDyn
+  , uDyn'
   , evt
   , divide
   , divided
@@ -124,6 +126,18 @@ dyn' attr = SetOnlyAttrib' $ \w d -> do setter attr w =<< sample (current d)
                                         es w (updated d)
   where SetOnlyAttrib' es = evt attr
 
+uDyn :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a), Eq a)
+     => attr w (HostFrame t) b a -> SetOnlyAttrib w m (UniqDynamic t a)
+uDyn = (fromUniqDynamic >$<) . dyn
+
+uDyn' :: ( NodeGraph t m
+         , IsSettable w (HostFrame t) a (attr w (HostFrame t) b a)
+         , IsSettable w m a (attr w m b a)
+         , Eq a )
+      => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
+      -> SetOnlyAttrib w m (UniqDynamic t a)
+uDyn' attr = fromUniqDynamic >$< dyn' attr
+
 evt :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a))
     => attr w (HostFrame t) b a -> SetOnlyAttrib w m (Event t a)
 evt attr = SetOnlyAttrib' $ \w e -> onEvent_ e $ setter attr w
@@ -138,13 +152,13 @@ divided :: (Monad m, IsSettable w m b attrb, IsSettable w m c attrc)
         => attrb -> attrc -> SetOnlyAttrib w m (b, c)
 divided = divide id
 
-choose :: (Monad m, IsSettable w m b attrb, IsSettable w m c attrc)
+choose :: (IsSettable w m b attrb, IsSettable w m c attrc)
        => (a -> Either b c) -> attrb -> attrc -> SetOnlyAttrib w m a
 choose f attrb attrc = SetOnlyAttrib' $ \w a -> case f a of
                                                   Left b -> setter attrb w b
                                                   Right c -> setter attrc w c
 
-chosen :: (Monad m, IsSettable w m b attrb, IsSettable w m c attrc)
+chosen :: (IsSettable w m b attrb, IsSettable w m c attrc)
        => attrb -> attrc -> SetOnlyAttrib w m (Either b c)
 chosen = choose id
 
@@ -174,7 +188,7 @@ class HasRotation n m where
 data Transform = Transform
                { _transformPos :: P2 Double
                , _transformRot :: Direction V2 Double
-               }
+               } deriving (Show, Read, Eq, Ord)
 makeFields ''Transform
 
 transform :: (HasPosition n m, HasRotation n m) => Attrib n m Transform

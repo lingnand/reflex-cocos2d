@@ -30,16 +30,13 @@ import Control.Monad.IO.Class
 import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Trans.Free
-import Control.Monad.Primitive
 import Reflex
 import Reflex.Host.Class
 import JavaScript.Cocos2d.Node
 
 class ( ReflexHost t, MonadIO m, MonadIO (HostFrame t), MonadFix m, MonadHold t m
       , MonadRef m, Ref m ~ Ref IO, MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
-      , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
-      -- XXX: is this good practice..?
-      , PrimMonad m, PrimState m ~ PrimState IO)
+      , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m )
       => NodeGraph t m where
     askParent :: m Node
     -- | Schedule an action to occur after the current cohort has been

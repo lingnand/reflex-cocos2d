@@ -206,11 +206,11 @@ data Shape = Circle Double (P2 Double)
            | Segment Double (P2 Double) (P2 Double)
            -- NOTE: the list of points need to be in ANTI-clockwise order,
            -- and in convex shape
-           | Poly [P2 Double] deriving (Show, Read)
+           | Poly [P2 Double] deriving (Show, Read, Eq)
 
 data CollisionCoefficients = CollisionCoefficients { _elasticity :: Double
                                                    , _friction :: Double
-                                                   } deriving (Show, Read)
+                                                   } deriving (Show, Read, Eq)
 makeClassy ''CollisionCoefficients
 
 instance Default CollisionCoefficients where
@@ -221,7 +221,7 @@ data Fixture = Fixture { _shape :: Shape
                        , _mass :: Double
                        , _fToCoP :: CollisionCoefficients
                        , _sensor :: Bool
-                       } deriving (Show, Read)
+                       } deriving (Show, Read, Eq)
 makeLenses ''Fixture
 
 instance HasCollisionCoefficients Fixture where
@@ -322,26 +322,32 @@ cpFlattenedVerts verts = foldl' (\a p -> p^._x:p^._y:a) [] verts
 
 updateFixs :: Space -> Body -> [Fixture] -> IO ()
 updateFixs space body fixs = do
-    cp_removeAllShapes space body
     -- loop through all the shapelist and use Space.removeShape on each one
-    totalMoment <- fmap sum . forM fixs $ \f -> calcMoment (f^.mass) (f^.shape)
-    let totalMass = sumOf (traverse.mass) fixs
-    cp_setMoment body totalMoment
-    cp_setMass body totalMass
-    -- add all the shapes
-    forM_ fixs $ \(Fixture shape _ (CollisionCoefficients elas fric) sensor) -> do
-      cps <- case shape of
-        Circle rad os -> cp_createCircleShape body rad =<< r2ToCPVec os
-        Segment rad a b -> do
-          a' <- r2ToCPVec a
-          b' <- r2ToCPVec b
-          cp_createSegment body a' b' rad
-        Poly verts -> cp_createPolyShape body =<< toJSVal (cpFlattenedVerts verts)
-      -- set up all the remaining details
-      cp_setElasticity cps elas
-      cp_setFriction cps fric
-      cp_setSensor cps sensor
-      cp_addShape space cps
+    cp_removeAllShapes space body
+    if null fixs
+      then do
+        -- have to supply positive numbers
+        cp_setMoment body 1
+        cp_setMass body 1
+      else do
+        tMoment <- fmap sum . forM fixs $ \f -> calcMoment (f^.mass) (f^.shape)
+        let tMass = sumOf (traverse.mass) fixs
+        cp_setMoment body tMoment
+        cp_setMass body tMass
+        -- add all the shapes
+        forM_ fixs $ \(Fixture shape _ (CollisionCoefficients elas fric) sensor) -> do
+          cps <- case shape of
+            Circle rad os -> cp_createCircleShape body rad =<< r2ToCPVec os
+            Segment rad a b -> do
+              a' <- r2ToCPVec a
+              b' <- r2ToCPVec b
+              cp_createSegment body a' b' rad
+            Poly verts -> cp_createPolyShape body =<< toJSVal (cpFlattenedVerts verts)
+          -- set up all the remaining details
+          cp_setElasticity cps elas
+          cp_setFriction cps fric
+          cp_setSensor cps sensor
+          cp_addShape space cps
 
 
 initBody :: (NodeGraph t m, Enum a)
