@@ -24,6 +24,7 @@ module Reflex.State
   , refine
   , runAccStateT
   , execAccStateT
+  , evalAccStateT
   , adjust
   , adjustMaybe
   , pnon
@@ -145,6 +146,9 @@ _runAccStateT' ms d ts = flip runReaderT d . flip runStateT ts . _runAccStateT $
 
 execAccStateT :: (Accumulator t f, MonadHold t m, MonadFix m) => AccStateT t f s m a -> s -> m (f s)
 execAccStateT ms initial = snd <$> runAccStateT ms initial
+
+evalAccStateT :: (Accumulator t f, MonadHold t m, MonadFix m) => AccStateT t f s m a -> s -> m a
+evalAccStateT ms initial = fst <$> runAccStateT ms initial
 
 focus :: (Reflex t, MonadHold t m, Functor f) => ALens' s a -> AccStateT t f a m b -> AccStateT t f s m b
 focus len am = do

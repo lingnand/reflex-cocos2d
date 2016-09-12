@@ -132,7 +132,7 @@ foreign import javascript unsafe "$1.gravity" cp_getGravity :: Space -> IO CPVec
 -- THIS ASSUMES that each body has its userdata set to a trigger function
 foreign import javascript unsafe "$1.step($2)" cp_step :: Space -> Double -> IO ()
 foreign import javascript unsafe "$1.addBody($2)" cp_addBody :: Space -> Body -> IO ()
-foreign import javascript unsafe "$1.addShape($2)" cp_addShape :: Space -> CPShape -> IO ()
+foreign import javascript unsafe "$1.addShape($3); $2.data.shapes.push($3)" cp_addShape :: Space -> Body -> CPShape -> IO ()
 foreign import javascript unsafe "var beganFunc=function(a,s){ var bA=a.getA().body; var bB=a.getB().body; if (bA.data.began){ bA.data.began(a,bB,bB.data.collisionType); } if (bB.data.began){ bB.data.began(a,bA,bA.data.collisionType); } return true; }; var postSolveFunc=function(a,s){ var bA=a.getA().body; var bB=a.getB().body; if (bA.data.postSolve){ bA.data.postSolve(a,bB,bB.data.collisionType); } if (bB.data.postSolve){ bB.data.postSolve(a,bA,bA.data.collisionType); }}; var separateFunc=function(a,s){ var bA=a.getA().body; var bB=a.getB().body; if (bA.data.separate){ bA.data.separate(a,bB,bB.data.collisionType); } if (bB.data.separate){ bB.data.separate(a,bA,bA.data.collisionType); }}; $1.addCollisionHandler(0, 0, beganFunc, null, postSolveFunc, separateFunc)" cp_addCollisionHandler :: Space -> IO ()
 
 ---- Arbiter ----
@@ -148,7 +148,7 @@ foreign import javascript unsafe "$1.dist" cp_getDist :: JSVal -> IO Double
 ---- Body ----
 -- mass, moment
 foreign import javascript unsafe "new cp.Body($1, $2)" cp_createBody :: Double -> Double -> IO Body
-foreign import javascript unsafe "var shapes = $2.shapeList.slice(); for (var i = 0; i < shapes.length; i++) { $1.removeShape(shapes[i]); }" cp_removeAllShapes :: Space -> Body -> IO ()
+foreign import javascript unsafe "var shapes = $2.data.shapes; for (var i = 0; i < shapes.length; i++) { $1.removeShape(shapes[i]); } $2.data.shapes = []" cp_removeAllShapes :: Space -> Body -> IO ()
 foreign import javascript unsafe "$1.setMass($2)" cp_setMass :: Body -> Double -> IO ()
 foreign import javascript unsafe "$1.setMoment($2)" cp_setMoment :: Body -> Double -> IO ()
 foreign import javascript unsafe "$1.setPos($2)" cp_setPos :: Body -> CPVec -> IO ()
@@ -161,7 +161,7 @@ foreign import javascript unsafe "$1.applyForce($2, $3)" cp_applyForce :: Dynami
 foreign import javascript unsafe "$1.applyImpulse($2, $3)" cp_applyImpulse :: DynamicBody -> CPVec -> CPVec -> IO ()
 foreign import javascript unsafe "$1.activate()" cp_activate :: DynamicBody -> IO ()
 foreign import javascript unsafe "$1.sleep()" cp_sleep :: DynamicBody -> IO ()
-foreign import javascript unsafe "$1.data = { space:$2, collisionType:0, began:null, postSolve:null, separate:null }" cp_setupData :: Body -> Space -> IO ()
+foreign import javascript unsafe "$1.data = { space:$2, collisionType:0, began:null, postSolve:null, separate:null, shapes: [] }" cp_setupData :: Body -> Space -> IO ()
 foreign import javascript unsafe "$1.data.collisionType = $2" cp_setCollisionType :: Body -> Int -> IO ()
 foreign import javascript unsafe "$1.data.collisionType" cp_getCollisionType :: Body -> IO Int
 foreign import javascript unsafe "$1.data.began = $2" cp_setCollisionBegan :: Body -> Callback a -> IO ()
@@ -240,15 +240,16 @@ data Step = Step { _stepTime :: NominalDiffTime
                  }
 makeLenses ''Step
 
-data DynSpace t = DynSpace { _cpSpace :: Space
-                           , _steps :: Event t Step
-                           }
+-- a: phantom type to enforce one collision type among all created bodies
+data DynSpace t a = DynSpace { _cpSpace :: Space
+                             , _steps :: Event t Step
+                             }
 makeLenses ''DynSpace
 
-instance IsSpace (DynSpace t) where
+instance IsSpace (DynSpace t a) where
     toSpace (DynSpace sp _) = sp
 
-space :: NodeGraph t m => Event t NominalDiffTime -> [Prop Space m] -> m (DynSpace t)
+space :: (NodeGraph t m) => Event t NominalDiffTime -> [Prop Space m] -> m (DynSpace t a)
 space ts props = do
     space <- liftIO cp_createSpace
     liftIO $ cp_addCollisionHandler space
@@ -347,11 +348,11 @@ updateFixs space body fixs = do
           cp_setElasticity cps elas
           cp_setFriction cps fric
           cp_setSensor cps sensor
-          cp_addShape space cps
+          cp_addShape space body cps
 
 
 initBody :: (NodeGraph t m, Enum a)
-         => DynSpace t
+         => DynSpace t a
          -> (DynBody t a Body -> m b) -> m b
 initBody (DynSpace space steps) setup = do
     -- XXX: use 1 1 to bypass checks to create a body
@@ -399,13 +400,13 @@ initBody (DynSpace space steps) setup = do
     return res
 
 staticBody :: (NodeGraph t m, Enum a)
-           => DynSpace t
+           => DynSpace t a
            -> [Prop (DynBody t a Body) m]
            -> m (DynBody t a Body)
 staticBody dspace props = initBody dspace $ \db -> set db props >> return db
 
-dynamicBody :: (NodeGraph t m, Enum a, Eq a)
-            => DynSpace t
+dynamicBody :: (NodeGraph t m, Enum a)
+            => DynSpace t a
             -> [Prop (DynBody t a DynamicBody) m]
             -> m (DynBody t a DynamicBody)
 dynamicBody dspace props = initBody dspace $ \db -> do
