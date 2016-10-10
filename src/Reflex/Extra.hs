@@ -1,30 +1,23 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
-module Reflex.Extra (
-    takeWhileE
-  , dropWhileE
-  , breakE
-  , switchF'
-  , stack
-  , distribute
-  ) where
+module Reflex.Extra
+    ( takeWhileE
+    , dropWhileE
+    , breakE
+    , dynMaybe
+    , stack
+    , distribute
+    )
+  where
 
 import Reflex
 import Control.Monad
 import Control.Monad.Fix
-import Control.Monad.Trans.Free
 import Data.Maybe
 import Control.Applicative
 import Control.Lens
-
-switchF' :: (Reflex t, MonadHold t m) => Free (Event t) a -> m (FreeF (Event t) a a)
-switchF' ft = case runFree ft of
-    Pure a -> return $ Pure a
-    Free e -> Free <$> switchPromptly never flattened
-      where flattened = flip pushAlways e $ switchF' >=> \case
-                            Pure a -> return $ a <$ e
-                            Free ie -> return ie
 
 -- | Efficiently cut off a stream of events at a point
 takeWhileE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m (Event t a)
@@ -50,6 +43,11 @@ breakE f e = do
     bef <- switch <$> hold e' (never <$ gateE')
     aft <- switchPromptly never (e <$ gateE')
     return (bef, aft)
+
+-- | Convert an Event into a Dynamic of Maybe
+dynMaybe :: (Reflex t, MonadHold t m)
+         => Event t a -> m (Dynamic t (Maybe a))
+dynMaybe e = holdDyn Nothing $ Just <$> e
 
 -- | Simple stack that responds to Events
 stack :: (Reflex t, MonadHold t m, MonadFix m)

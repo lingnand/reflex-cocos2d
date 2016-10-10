@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -5,299 +6,372 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GADTs #-}
 module Reflex.Cocos2d.Event
-    (
-    -- * UI Events
-      UIEventType
-    -- ** Convenience Lens Getters
-    , TouchEvents(TouchEvents)
-    , HasTouchEvents(..)
-    , SingleTouchEvents(SingleTouchEvents)
-    , HasSingleTouchEvents(..)
-    , DragEvent
-    , dragBegan
-    , dragMoved
-    , dragEnded
-    , dragged
+    ( MouseEvents(MouseEvents)
     , mouseDown
     , mouseUp
-    , mouseMove
-    , mouseScroll
+    , mouseMoved
+    , mouseScrolled
+
+    , TouchEvents(TouchEvents)
+    , touchBegan
+    , touchMoved
+    , touchEnded
+    , touchCancelled
+    , MultiTouchEvents(MultiTouchEvents)
+    , multiTouchBegan
+    , multiTouchMoved
+    , multiTouchEnded
+    , multiTouchCancelled
+
+    , KeyboardEvents(KeyboardEvents)
     , keyPressed
     , keyReleased
-    , accelChanged
-    , uiEvents
-    , dynKeysDown
-    -- * Time
-    , ticks
-    , dilate
-    -- * Rand
-    , runRandEvent
-    -- , ticks'
-    , delay
+
+    , getMouseEvents
+    , getTouchEvents
+    , getMultiTouchEvents
+    , getKeyboardEvents
+    , getAccelerations
+
+    , accumKeysDown
+
+    -- , DragEvent
+    -- , dragBegan
+    -- , dragMoved
+    -- , dragEnded
+    -- , dragged
+
     -- * Async
-    , load
+    , loadTexture
+    -- , load
     -- * Utility
-    , nodeContains
-    -- * Reflex Utilities
-    , switchF
+    -- , nodeContains
     -- * Widget
-    , WidgetTouchEvents(WidgetTouchEvents)
-    , HasWidgetTouchEvents(..)
-    , WidgetEvents(WidgetEvents)
-    , widgetClicked
-    , widgetEvents
-    , pageViewEvents
-    , listViewEvents
-    , scrollViewEvents
-    , sliderEvents
-    , textFieldEvents
+    -- , WidgetTouchEvents(WidgetTouchEvents)
+    -- , HasWidgetTouchEvents(..)
+    -- , WidgetEvents(WidgetEvents)
+    -- , widgetClicked
+    -- , widgetEvents
+    -- , pageViewEvents
+    -- , listViewEvents
+    -- , scrollViewEvents
+    -- , sliderEvents
+    -- , textFieldEvents
     -- * Armature
-    , addArmatures
+    -- , addArmatures
     -- * re-export the lower level
-    , Touch(..)
-    , loc
-    , previousLoc
-    , delta
-    , startLoc
-    , Key(..)
-    , MouseEvent
-    , Accel(..)
-    , time
+    , KeyCode(..)
 
-    , PageView
-    , ListView
-    , ScrollView
-    , Slider
-    , TextField
-    , PageViewEvent(..)
-    , ListViewEvent(..)
-    , ScrollViewPos(..)
-    , ScrollViewEvent(..)
-    , SliderEvent(..)
-    , TextFieldEvent(..)
-    , loadCCS
-    , loadCCS'
-    ) where
+    -- , PageView
+    -- , ListView
+    -- , ScrollView
+    -- , Slider
+    -- , TextField
+    -- , PageViewEvent(..)
+    -- , ListViewEvent(..)
+    -- , ScrollViewPos(..)
+    -- , ScrollViewEvent(..)
+    -- , SliderEvent(..)
+    -- , TextFieldEvent(..)
+    -- , loadCCS
+    -- , loadCCS'
+    )
+  where
 
-import Diagrams (P2)
-import Diagrams.BoundingBox
-import Data.Tuple
-import Data.Time.Clock
+-- import Diagrams.BoundingBox
+import Data.Dependent.Sum ((==>))
 import qualified Data.Set as S
-import Data.Dependent.Sum (DSum (..))
-import Data.GADT.Compare.TH
 import Control.Monad
-import Control.Monad.Random
-import Control.Monad.Trans.Free
 import Control.Monad.Fix
-import Control.Monad.IO.Class
-import Control.Lens hiding (contains)
+import Control.Monad.Trans
 import Control.Monad.Ref
+import Control.Lens hiding (contains)
+
+import Foreign.Hoppy.Runtime (Decodable(..), HasContents(..))
+
 import Reflex
-import Reflex.Extra
 import Reflex.Host.Class
-import JavaScript.Cocos2d.Node
-import JavaScript.Cocos2d.Event
-import JavaScript.Cocos2d.Schedule
-import JavaScript.Cocos2d.CCS
-import qualified JavaScript.Cocos2d.Async as A
+
+import Graphics.UI.Cocos2d.Event hiding (Event)
+import Graphics.UI.Cocos2d.Director
+import Graphics.UI.Cocos2d.Texture
+
 import Reflex.Cocos2d.Class
-import Reflex.Cocos2d.Node
-import Reflex.Cocos2d.Attributes
-import Linear.Affine
+import Reflex.Cocos2d.Types
 
-data TouchEvents t = TouchEvents { _touchesBegan :: Event t [Touch]
-                                 , _touchesMoved :: Event t [Touch]
-                                 , _touchesEnded :: Event t [Touch]
-                                 , _touchesCancelled :: Event t [Touch]
-                                 }
+-- Event Packages
+data MouseEvents t = MouseEvents
+    { _mouseDown     :: Event t Mouse
+    , _mouseUp       :: Event t Mouse
+    , _mouseMoved    :: Event t Mouse
+    , _mouseScrolled :: Event t Mouse
+    }
 
-data SingleTouchEvents t = SingleTouchEvents { _touchBegan :: Event t Touch
-                                             , _touchMoved :: Event t Touch
-                                             , _touchEnded :: Event t Touch
-                                             , _touchCancelled :: Event t Touch
-                                             }
+mouseDown ::
+  forall t. Lens' (MouseEvents t) (Event t Mouse)
+mouseDown f (MouseEvents down up moved scrolled)
+  = fmap
+      (\ down' -> MouseEvents down' up moved scrolled)
+      (f down)
+{-# INLINE mouseDown #-}
+mouseMoved ::
+  forall t. Lens' (MouseEvents t) (Event t Mouse)
+mouseMoved
+  f
+  (MouseEvents down up moved scrolled)
+  = fmap
+      (\ moved' -> MouseEvents down up moved' scrolled)
+      (f moved)
+{-# INLINE mouseMoved #-}
+mouseScrolled ::
+  forall t. Lens' (MouseEvents t) (Event t Mouse)
+mouseScrolled
+  f
+  (MouseEvents down up moved scrolled)
+  = fmap
+      (\ scrolled' -> MouseEvents down up moved scrolled')
+      (f scrolled)
+{-# INLINE mouseScrolled #-}
+mouseUp ::
+  forall t. Lens' (MouseEvents t) (Event t Mouse)
+mouseUp f (MouseEvents down up moved scrolled)
+  = fmap
+      (\ up' -> MouseEvents down up' moved scrolled)
+      (f up)
+{-# INLINE mouseUp #-}
 
-class HasTouchEvents c t | c -> t where
-    touches :: Getter c (TouchEvents t)
-    touchesBegan :: Getter c (Event t [Touch])
-    touchesBegan = touches . to _touchesBegan
-    touchesMoved :: Getter c (Event t [Touch])
-    touchesMoved = touches . to _touchesMoved
-    touchesEnded :: Getter c (Event t [Touch])
-    touchesEnded = touches . to _touchesEnded
-    touchesCancelled :: Getter c (Event t [Touch])
-    touchesCancelled = touches . to _touchesCancelled
+data TouchEvents t = TouchEvents
+    { _touchBegan     :: Event t Touch
+    , _touchMoved     :: Event t Touch
+    , _touchEnded     :: Event t Touch
+    , _touchCancelled :: Event t Touch
+    }
 
-class HasSingleTouchEvents c t | c -> t where
-    singleTouches :: Getter c (SingleTouchEvents t)
-    touchBegan :: Getter c (Event t Touch)
-    touchBegan = singleTouches . to _touchBegan
-    touchMoved :: Getter c (Event t Touch)
-    touchMoved = singleTouches . to _touchMoved
-    touchEnded :: Getter c (Event t Touch)
-    touchEnded = singleTouches . to _touchEnded
-    touchCancelled :: Getter c (Event t Touch)
-    touchCancelled = singleTouches . to _touchCancelled
+touchBegan ::
+  forall t. Lens' (TouchEvents t) (Event t Touch)
+touchBegan
+  f
+  (TouchEvents began moved ended cancelled)
+  = fmap
+      (\ began' -> TouchEvents began' moved ended cancelled)
+      (f began)
+{-# INLINE touchBegan #-}
+touchCancelled ::
+  forall t. Lens' (TouchEvents t) (Event t Touch)
+touchCancelled
+  f
+  (TouchEvents began moved ended cancelled)
+  = fmap
+      (\ cancelled' -> TouchEvents began moved ended cancelled')
+      (f cancelled)
+{-# INLINE touchCancelled #-}
+touchEnded ::
+  forall t. Lens' (TouchEvents t) (Event t Touch)
+touchEnded
+  f
+  (TouchEvents began moved ended cancelled)
+  = fmap
+      (\ ended' -> TouchEvents began moved ended' cancelled)
+      (f ended)
+{-# INLINE touchEnded #-}
+touchMoved ::
+  forall t. Lens' (TouchEvents t) (Event t Touch)
+touchMoved
+  f
+  (TouchEvents began moved ended cancelled)
+  = fmap
+      (\ moved' -> TouchEvents began moved' ended cancelled)
+      (f moved)
+{-# INLINE touchMoved #-}
 
-filterSingular :: Reflex t => Event t [a] -> Event t a
-filterSingular = fmapMaybe $ \case
-                  [a] -> Just a
-                  _ -> Nothing
+data MultiTouchEvents t = MultiTouchEvents
+    { _multiTouchBegan     :: Event t [Touch]
+    , _multiTouchMoved     :: Event t [Touch]
+    , _multiTouchEnded     :: Event t [Touch]
+    , _multiTouchCancelled :: Event t [Touch]
+    }
 
-instance HasTouchEvents (TouchEvents t) t where
-    touches = id
+multiTouchBegan ::
+  forall t.
+  Lens' (MultiTouchEvents t) (Event t [Touch])
+multiTouchBegan
+  f
+  (MultiTouchEvents began moved ended cancelled)
+  = fmap
+      (\ began'
+         -> MultiTouchEvents began' moved ended cancelled)
+      (f began)
+{-# INLINE multiTouchBegan #-}
+multiTouchCancelled ::
+  forall t.
+  Lens' (MultiTouchEvents t) (Event t [Touch])
+multiTouchCancelled
+  f
+  (MultiTouchEvents began moved ended cancelled)
+  = fmap
+      (\ cancelled'
+         -> MultiTouchEvents began moved ended cancelled')
+      (f cancelled)
+{-# INLINE multiTouchCancelled #-}
+multiTouchEnded ::
+  forall t.
+  Lens' (MultiTouchEvents t) (Event t [Touch])
+multiTouchEnded
+  f
+  (MultiTouchEvents began moved ended cancelled)
+  = fmap
+      (\ ended'
+         -> MultiTouchEvents began moved ended' cancelled)
+      (f ended)
+{-# INLINE multiTouchEnded #-}
+multiTouchMoved ::
+  forall t.
+  Lens' (MultiTouchEvents t) (Event t [Touch])
+multiTouchMoved
+  f
+  (MultiTouchEvents began moved ended cancelled)
+  = fmap
+      (\ moved'
+         -> MultiTouchEvents began moved' ended cancelled)
+      (f moved)
+{-# INLINE multiTouchMoved #-}
 
-touchesToTouchBegan, touchesToTouchMoved , touchesToTouchEnded, touchesToTouchCancelled
-  :: (Reflex t, HasTouchEvents c t) => Getter c (Event t Touch)
-touchesToTouchBegan = touchesBegan . to filterSingular
-touchesToTouchMoved = touchesMoved . to filterSingular
-touchesToTouchEnded = touchesEnded . to filterSingular
-touchesToTouchCancelled = touchesCancelled . to filterSingular
+data KeyboardEvents t = KeyboardEvents
+    { _keyPressed  :: Event t KeyCode
+    , _keyReleased :: Event t KeyCode
+    }
 
-touchesToSingleTouches
-  :: HasSingleTouchEvents c t => Getter c (SingleTouchEvents t)
-touchesToSingleTouches = to $ \c -> SingleTouchEvents { _touchBegan = c ^. touchBegan
-                                                      , _touchMoved = c ^. touchMoved
-                                                      , _touchEnded = c ^. touchEnded
-                                                      , _touchCancelled = c ^. touchCancelled
-                                                      }
+keyPressed ::
+  forall t.
+  Lens' (KeyboardEvents t) (Event t KeyCode)
+keyPressed f (KeyboardEvents pressed released)
+  = fmap
+      (\ pressed' -> KeyboardEvents pressed' released) (f pressed)
+{-# INLINE keyPressed #-}
+keyReleased ::
+  forall t.
+  Lens' (KeyboardEvents t) (Event t KeyCode)
+keyReleased f (KeyboardEvents pressed released)
+  = fmap
+      (\ released' -> KeyboardEvents pressed released') (f released)
+{-# INLINE keyReleased #-}
 
-instance Reflex t => HasSingleTouchEvents (TouchEvents t) t where
-    touchBegan = touchesToTouchBegan
-    touchMoved = touchesToTouchMoved
-    touchEnded = touchesToTouchEnded
-    touchCancelled = touchesToTouchCancelled
-    singleTouches = touchesToSingleTouches
+-- Event listeners
+-- We generally put the listener to priority > scene graph (negative numbers)
+getMouseEvents :: NodeGraph t m => m (MouseEvents t)
+getMouseEvents = do
+    run <- view runWithActions
+    ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
+    let handleTrigger callbackSetter tr = do
+          l <- eventListenerMouse_create
+          callbackSetter l $ \em -> do
+            m <- decode em
+            run ([tr ==> m], return ())
+          eventDispatcher_addEventListenerWithFixedPriority ed l (-1)
+          return $ eventDispatcher_removeEventListener ed l
+    MouseEvents <$> newEventWithTrigger (handleTrigger eventListenerMouse_onMouseDown_set)
+                <*> newEventWithTrigger (handleTrigger eventListenerMouse_onMouseUp_set)
+                <*> newEventWithTrigger (handleTrigger eventListenerMouse_onMouseMove_set)
+                <*> newEventWithTrigger (handleTrigger eventListenerMouse_onMouseScroll_set)
 
-data UIEventType a where
-    TouchesBegan :: UIEventType [Touch]
-    TouchesEnded :: UIEventType [Touch]
-    TouchesMoved :: UIEventType [Touch]
-    TouchesCancelled :: UIEventType [Touch]
-    MouseDown :: UIEventType MouseEvent
-    MouseUp :: UIEventType MouseEvent
-    MouseMove :: UIEventType MouseEvent
-    MouseScroll :: UIEventType MouseEvent
-    KeyPressed :: UIEventType Key
-    KeyReleased :: UIEventType Key
-    AccelChanged :: UIEventType (Accel Double)
+getTouchEvents :: NodeGraph t m => m (TouchEvents t)
+getTouchEvents = do
+    run <- view runWithActions
+    ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
+    let handleTrigger callbackSetter tr = do
+          l <- eventListenerTouchOneByOne_create
+          callbackSetter l $ \(et :: EventTouch) _ -> do
+            t <- decode et
+            run ([tr ==> t], return ())
+          eventDispatcher_addEventListenerWithFixedPriority ed l (-1)
+          return $ eventDispatcher_removeEventListener ed l
+        setOnTouchBegan l cb = do
+          -- always return True (handles the Touch)
+          eventListenerTouchOneByOne_onTouchBegan_set l $ \et evt -> cb et evt >> return True
+    TouchEvents <$> newEventWithTrigger (handleTrigger setOnTouchBegan)
+                <*> newEventWithTrigger (handleTrigger eventListenerTouchOneByOne_onTouchMoved_set)
+                <*> newEventWithTrigger (handleTrigger eventListenerTouchOneByOne_onTouchEnded_set)
+                <*> newEventWithTrigger (handleTrigger eventListenerTouchOneByOne_onTouchCancelled_set)
 
-instance HasTouchEvents (EventSelector t UIEventType) t where
-    touches = to $ TouchEvents <$> (select ?? TouchesBegan)
-                               <*> (select ?? TouchesMoved)
-                               <*> (select ?? TouchesEnded)
-                               <*> (select ?? TouchesCancelled)
-    touchesBegan = to (select ?? TouchesBegan)
-    touchesEnded = to (select ?? TouchesEnded)
-    touchesMoved = to (select ?? TouchesMoved)
-    touchesCancelled = to (select ?? TouchesCancelled)
+getMultiTouchEvents :: NodeGraph t m => m (MultiTouchEvents t)
+getMultiTouchEvents = do
+    run <- view runWithActions
+    ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
+    let handleTrigger callbackSetter tr = do
+          l <- eventListenerTouchAllAtOnce_create
+          callbackSetter l $ \ets _ -> do
+            -- convert ets to a list of Touches
+            ts <- toContents ets >>= mapM decode
+            run ([tr ==> ts], return ())
+          eventDispatcher_addEventListenerWithFixedPriority ed l (-1)
+          return $ eventDispatcher_removeEventListener ed l
+    MultiTouchEvents <$> newEventWithTrigger (handleTrigger eventListenerTouchAllAtOnce_onTouchesBegan_set)
+                     <*> newEventWithTrigger (handleTrigger eventListenerTouchAllAtOnce_onTouchesMoved_set)
+                     <*> newEventWithTrigger (handleTrigger eventListenerTouchAllAtOnce_onTouchesEnded_set)
+                     <*> newEventWithTrigger (handleTrigger eventListenerTouchAllAtOnce_onTouchesCancelled_set)
 
-instance Reflex t => HasSingleTouchEvents (EventSelector t UIEventType) t where
-    touchBegan = touchesToTouchBegan
-    touchMoved = touchesToTouchMoved
-    touchEnded = touchesToTouchEnded
-    touchCancelled = touchesToTouchCancelled
-    singleTouches = touchesToSingleTouches
+getKeyboardEvents :: NodeGraph t m => m (KeyboardEvents t)
+getKeyboardEvents = do
+    run <- view runWithActions
+    ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
+    let handleTrigger callbackSetter tr = do
+          l <- eventListenerKeyboard_create
+          callbackSetter l $ \kc _ -> run ([tr ==> kc], return ())
+          eventDispatcher_addEventListenerWithFixedPriority ed l (-1)
+          return $ eventDispatcher_removeEventListener ed l
+    KeyboardEvents <$> newEventWithTrigger (handleTrigger eventListenerKeyboard_onKeyPressed_set)
+                   <*> newEventWithTrigger (handleTrigger eventListenerKeyboard_onKeyReleased_set)
 
-mouseDown, mouseUp, mouseMove, mouseScroll
-    :: IndexPreservingGetter (EventSelector t UIEventType) (Event t MouseEvent)
-mouseDown = to (select ?? MouseDown)
-mouseUp = to (select ?? MouseUp)
-mouseMove = to (select ?? MouseMove)
-mouseScroll = to (select ?? MouseScroll)
-
-keyPressed, keyReleased
-    :: IndexPreservingGetter (EventSelector t UIEventType) (Event t Key)
-keyPressed = to (select ?? KeyPressed)
-keyReleased = to (select ?? KeyReleased)
-
-accelChanged :: IndexPreservingGetter (EventSelector t UIEventType) (Event t (Accel Double))
-accelChanged = to (select ?? AccelChanged)
-
-deriveGEq ''UIEventType
-deriveGCompare ''UIEventType
-
-uiEvents :: NodeGraph t m => m (EventSelector t UIEventType)
-uiEvents = do
-    runWithActions <- askRunWithActions
-    e <- newFanEventWithTrigger $ \uiEventType et ->
-      let wrap ml cb = do
-              l <- ml
-              releaseCb <- cb l
-              -- put the listener to priority > scene graph
-              addListener' l (-1)
-              return $ removeListener l >> releaseCb
-      in case uiEventType of
-          TouchesBegan -> wrap createTouchAllAtOnceEventListener $ setOnTouchesBegan ?? \t -> runWithActions ([et :=> Identity t], return ())
-          TouchesEnded -> wrap createTouchAllAtOnceEventListener $ setOnTouchesEnded ?? \t -> runWithActions ([et :=> Identity t], return ())
-          TouchesMoved -> wrap createTouchAllAtOnceEventListener $ setOnTouchesMoved ?? \t -> runWithActions ([et :=> Identity t], return ())
-          TouchesCancelled -> wrap createTouchAllAtOnceEventListener $ setOnTouchesCancelled ?? \t -> runWithActions ([et :=> Identity t], return ())
-          MouseDown -> wrap createMouseEventListener $ setOnMouseDown ?? \m -> runWithActions ([et :=> Identity m], return ())
-          MouseUp -> wrap createMouseEventListener $ setOnMouseUp ?? \m -> runWithActions ([et :=> Identity m], return ())
-          MouseMove -> wrap createMouseEventListener $ setOnMouseMove ?? \m -> runWithActions ([et :=> Identity m], return ())
-          MouseScroll -> wrap createMouseEventListener $ setOnMouseScroll ?? \m -> runWithActions ([et :=> Identity m], return ())
-          KeyPressed -> wrap createKeyboardEventListener $ setOnKeyPressed ?? \k -> runWithActions ([et :=> Identity k], return ())
-          KeyReleased -> wrap createKeyboardEventListener $ setOnKeyReleased ?? \k -> runWithActions ([et :=> Identity k], return ())
-          AccelChanged -> do
-            (l, releaseCb) <- createAccelEventListener (\acc -> runWithActions ([et :=> Identity acc], return ()))
-            addListener' l (-1)
-            return $ removeListener l >> releaseCb
-    return $! e
+getAccelerations :: NodeGraph t m => m (Event t Acceleration)
+getAccelerations = do
+    run <- view runWithActions
+    newEventWithTrigger $ \tr -> do
+      ed <- director_getInstance >>= director_getEventDispatcher
+      l <- eventListenerAcceleration_create $ \ea _ -> do
+              a <- decode ea
+              run ([tr ==> a], return ())
+      eventDispatcher_addEventListenerWithFixedPriority ed l (-1)
+      return $ eventDispatcher_removeEventListener ed l
 
 -- | Convenience function to obtain currently held keys
-dynKeysDown :: (Reflex t, MonadHold t m, MonadFix m) => Event t Key -> Event t Key -> m (Dynamic t (S.Set Key))
-dynKeysDown keyPressed keyReleased = accumMaybe (&) S.empty $ leftmost [ ffor keyPressed $ \k m -> do
-                                                                            -- since KeyPressed event can keep firing
-                                                                            -- we block non-changing events
-                                                                            guard . not $ k `S.member` m
-                                                                            return $ S.insert k m
-                                                                       , ffor keyReleased $ fmap Just . S.delete
-                                                                       ]
+accumKeysDown :: (Reflex t, MonadHold t m, MonadFix m) => KeyboardEvents t -> m (Dynamic t (S.Set KeyCode))
+accumKeysDown (KeyboardEvents pressedE releasedE) = do
+    let insertE = ffor pressedE $ \k m -> do
+                    -- since KeyPressed event can keep firing
+                    -- we block non-changing events
+                    guard . not $ k `S.member` m
+                    return $ S.insert k m
+        deleteE = ffor releasedE $ fmap Just . S.delete
+    accumMaybe (&) S.empty $ leftmost [ insertE, deleteE ]
 
-nodeContains :: (MonadIO m, IsNode n) => n -> (P2 Double) -> m Bool
-nodeContains n p = do
-    sz <- get n size
-    p' <- convertToNodeSpace n p
-    return $ fromCorners 0 (0.+^sz) `contains` p'
+-- nodeContains :: (MonadIO m, IsNode n) => n -> (P2 Double) -> m Bool
+-- nodeContains n p = do
+--     sz <- get n size
+--     p' <- convertToNodeSpace n p
+--     return $ fromCorners 0 (0.+^sz) `contains` p'
 
 -- a datatype representing the necessary information regarding a drag event
-data DragEvent t = DragEvent { _dragBegan :: Touch
-                             , _dragMoved :: Event t Touch
-                             , _dragEnded :: Event t Touch
-                             }
-makeLenses ''DragEvent
-
--- return Event (dragStart, Event dragging, Event dragEnd)
-dragged :: NodeGraph t m => SingleTouchEvents t -> m (Event t (DragEvent t))
-dragged (SingleTouchEvents began moved ended _) = do
-    let mstream = leftmost [ (True,) <$> moved
-                           , (False,) <$> ended
-                           ]
-    rec e' <- onEvent began $ \t -> do
-          (ms, _) <- sample b'
-          (movedSeg, ms') <- breakE fst ms
-          (endedSeg, ms'') <- headTailE ms'
-          return (ms'', Just $ DragEvent t (snd <$> movedSeg) (snd <$> endedSeg))
-        b' <- hold (mstream, Nothing) e'
-    return $ fmapMaybe snd e'
-
--- | Modulate a ticker
-dilate :: (Reflex t, MonadHold t m, MonadFix m, Num a, Ord a) => a -> Event t a -> m (Event t a)
-dilate limit = mapAccumMaybe_ f (0, limit)
-    where f (acc, l) d = let sum = acc + d in
-                         if sum > l then (Just (0  , limit-(sum-l)) , Just sum)
-                                    else (Just (sum, l            ) , Nothing )
-
--- | Get the tick per frame
-ticks :: NodeGraph t m => m (Event t NominalDiffTime)
-ticks = do
-    runWithActions <- askRunWithActions
-    newEventWithTrigger $ \et ->
-        scheduleUpdate 0 $ \d -> runWithActions ([et :=> Identity d], return ())
+-- data DragEvent t = DragEvent { _dragBegan :: Touch
+--                              , _dragMoved :: Event t Touch
+--                              , _dragEnded :: Event t Touch
+--                              }
+-- makeLenses ''DragEvent
+--
+-- -- return Event (dragStart, Event dragging, Event dragEnd)
+-- dragged :: NodeGraph t m => SingleTouchEvents t -> m (Event t (DragEvent t))
+-- dragged (SingleTouchEvents began moved ended _) = do
+--     let mstream = leftmost [ (True,) <$> moved
+--                            , (False,) <$> ended
+--                            ]
+--     rec e' <- onEvent began $ \t -> do
+--           (ms, _) <- sample b'
+--           (movedSeg, ms') <- breakE fst ms
+--           (endedSeg, ms'') <- headTailE ms'
+--           return (ms'', Just $ DragEvent t (snd <$> movedSeg) (snd <$> endedSeg))
+--         b' <- hold (mstream, Nothing) e'
+--     return $ fmapMaybe snd e'
 
 -- ticks' :: NodeGraph t m => NominalDiffTime -> m (Event t NominalDiffTime)
 -- ticks' interval = do
@@ -305,30 +379,36 @@ ticks = do
 --     newEventWithTrigger $ \et ->
 --         scheduleUpdate' interval True $ \d -> runWithActions [et :=> Identity d]
 
-runRandEvent :: NodeGraph t m => Event t (Rand StdGen a) -> m (Event t a)
-runRandEvent rands = do
-    g <- liftIO newStdGen
-    mapAccum_ (\g comp -> swap $ runRand comp g) g rands
+-- | Delay an Event by the given amount of seconds
+-- TODO: every time this is called the previous "delayed" is invalidated
+-- we need to have a unique key for every invocation
+-- delay :: NodeGraph t m => Float -> Event t a -> m (Event t a)
+-- delay dt e = do
+--     runWithActions <- askRunWithActions
+--     (e', trigger) <- newEventWithTriggerRef
+--     delayedFire <- liftIO $ do
+--       dtor <- director_getInstance
+--       sch <- director_getScheduler dtor
+--       let target = castPtr $ toPtr dtor
+--       return $ \a ->
+--         scheduler_scheduleWithIntervalAndRepeat sch
+--           (\_ -> readRef trigger >>= mapM_ (\t -> runWithActions ([t ==> a], return ())))
+--           target 0 0 dt False "delayed"
+--     onEvent_ e $ liftIO . delayedFire
+--     return e'
 
--- | Delay an Event by the given amount of time
-delay :: NodeGraph t m => NominalDiffTime -> Event t a -> m (Event t a)
-delay dt e = do
-    runWithActions <- askRunWithActions
-    (e', trigger) <- newEventWithTriggerRef
-    onEvent_ e $ \a -> mdo
-      -- ignoring the tear-down function for now
-      release <- scheduleUpdate' dt False $ \_ -> do
-        readRef trigger >>= mapM_ (\t -> runWithActions ([t :=> Identity a], return ()))
-        -- after finished with the update, release directly
-        release
-      return ()
-    return e'
-
--- | Merge a deeply nested Event into a single Event
-switchF :: NodeGraph t m => Free (Event t) a -> m (Event t a)
-switchF f = switchF' f >>= \case
-    Pure a -> fmap (a <$) askPostBuildEvent
-    Free e -> return e
+-- | NOTE: we can't return the texture because it's an autoreleased object
+loadTexture :: NodeGraph t m => String -> m (Event t ())
+loadTexture path = do
+    run <- view runWithActions
+    -- Since we are not sure if the user would subscribe to the resulting event, we can't just use
+    -- newEventWithTrigger
+    (e, trigger) <- newEventWithTriggerRef
+    liftIO $ do
+      tc <- director_getInstance >>= director_getTextureCache
+      textureCache_addImageAsync tc path $ \_ -> do
+        readRef trigger >>= mapM_ (\tr -> run ([tr ==> ()], return ()))
+    return e
 
 -- | Load a list of resources in an async manner
 -- returns (Event t (loaded, total), finished)
@@ -336,104 +416,30 @@ switchF f = switchF' f >>= \case
 -- also, increment the finished by 1 because we are not procedurally
 -- looking at how many loaded /last time/ (instead how many /already/
 -- loaded)
-load :: (NodeGraph t m) => [String] -> m (Event t (Int, Int), Event t ())
-load resources = do
-    o <- A.createLoadOption
-    runWithActions <- askRunWithActions
-    trigger <- newEventWithTrigger $ \et ->
-        A.setLoadTrigger o $ \total loaded ->
-            runWithActions ([et :=> Identity (loaded+1, total)], return ())
-    finished <- newEventWithTrigger $ \et ->
-        A.setLoadFinish o $ runWithActions ([et :=> Identity ()], return ())
-    askPostBuildEvent >>= runEvent_ . (A.load resources o <$)
-    return (trigger, finished)
-
-
--------- WIDGET ----------
-
-data WidgetTouchEvents t = WidgetTouchEvents { _widgetTouchBegan :: Event t (P2 Double)
-                                             , _widgetTouchMoved :: Event t (P2 Double)
-                                             , _widgetTouchEnded :: Event t (P2 Double)
-                                             , _widgetTouchCancelled :: Event t ()
-                                             }
-makeClassyFor "HasWidgetTouchEvents" "widgetTouches" [ ("_widgetTouchBegan", "widgetTouchBegan")
-                                                     , ("_widgetTouchMoved", "widgetTouchMoved")
-                                                     , ("_widgetTouchEnded", "widgetTouchEnded")
-                                                     , ("_widgetTouchCancelled", "widgetTouchCancelled")
-                                                     ] ''WidgetTouchEvents
-
-data WidgetEvents t = WidgetEvents { _weToWTouchEvents :: WidgetTouchEvents t
-                                   , _widgetClicked :: Event t ()
-                                   }
-makeLenses ''WidgetEvents
-
-instance HasWidgetTouchEvents (WidgetEvents t) t where
-    widgetTouches = weToWTouchEvents
-
-
-widgetEvents :: (NodeGraph t m, IsWidget w) => w -> m (WidgetEvents t)
-widgetEvents w = do
-    runWithActions <- askRunWithActions
-    evt <- newEventWithTrigger $ \et ->
-            setOnWidgetTouch w $ \t -> runWithActions ([et :=> Identity t], return ())
-    let beganE =  fforMaybe evt $ \case
-                    WidgetTouchBegan p -> Just p
-                    _ -> Nothing
-        movedE =  fforMaybe evt $ \case
-                    WidgetTouchMoved p -> Just p
-                    _ -> Nothing
-        endedE =  fforMaybe evt $ \case
-                    WidgetTouchEnded p -> Just p
-                    _ -> Nothing
-        cancelledE = fforMaybe evt $ \case
-                      WidgetTouchCancelled -> Just ()
-                      _ -> Nothing
-    clicks <- newEventWithTrigger $ \et ->
-      setOnWidgetClick w $ runWithActions ([et :=> Identity ()], return ())
-    return $ WidgetEvents (WidgetTouchEvents beganE movedE endedE cancelledE) clicks
-
-pageViewEvents :: NodeGraph t m => PageView -> m (Event t PageViewEvent)
-pageViewEvents w = do
-    runWithActions <- askRunWithActions
-    newEventWithTrigger $ \et ->
-      setOnPageViewEvent w $ \e -> runWithActions ([et :=> Identity e], return ())
-
-listViewEvents :: NodeGraph t m => ListView -> m (Event t ListViewEvent)
-listViewEvents w = do
-    runWithActions <- askRunWithActions
-    newEventWithTrigger $ \et ->
-      setOnListViewEvent w $ \e -> runWithActions ([et :=> Identity e], return ())
-
-scrollViewEvents :: NodeGraph t m => ScrollView -> m (Event t ScrollViewEvent)
-scrollViewEvents w = do
-    runWithActions <- askRunWithActions
-    newEventWithTrigger $ \et ->
-      setOnScrollViewEvent w $ \e -> runWithActions ([et :=> Identity e], return ())
-
-sliderEvents :: NodeGraph t m => Slider -> m (Event t SliderEvent)
-sliderEvents w = do
-    runWithActions <- askRunWithActions
-    newEventWithTrigger $ \et ->
-      setOnSliderEvent w $ \e -> runWithActions ([et :=> Identity e], return ())
-
-textFieldEvents :: NodeGraph t m => TextField -> m (Event t TextFieldEvent)
-textFieldEvents w = do
-    runWithActions <- askRunWithActions
-    newEventWithTrigger $ \et ->
-      setOnTextFieldEvent w $ \e -> runWithActions ([et :=> Identity e], return ())
+-- load :: (NodeGraph t m) => [String] -> m (Event t (Int, Int), Event t ())
+-- load resources = do
+--     o <- A.createLoadOption
+--     runWithActions <- askRunWithActions
+--     trigger <- newEventWithTrigger $ \et ->
+--         A.setLoadTrigger o $ \total loaded ->
+--             runWithActions ([et :=> Identity (loaded+1, total)], return ())
+--     finished <- newEventWithTrigger $ \et ->
+--         A.setLoadFinish o $ runWithActions ([et :=> Identity ()], return ())
+--     askPostBuildEvent >>= runEvent_ . (A.load resources o <$)
+--     return (trigger, finished)
 
 
 -------- Armature ----------
 
-addArmatures :: NodeGraph t m => [String]
-                              -> m (Event t Double, Event t ()) -- ^ (Event of percentage progress, Event when everything finishes)
-addArmatures files = do
-    l <- createArmatureFileInfoAsyncListener
-    addArmatureFileInfosAsync files l
-    runWithActions <- askRunWithActions
-    percentE <- newEventWithTrigger $ \et ->
-      setOnArmatureFileInfoAsyncProgress l $ \percent -> runWithActions ([et :=> Identity percent], return ())
-    -- count the number of percentE, all loading is finished when exactly the number of files is fired
-    finished <- dropWhileE (< 1) percentE
-    headFinished <- headE finished
-    return (percentE, () <$ headFinished)
+-- addArmatures :: NodeGraph t m => [String]
+--                               -> m (Event t Double, Event t ()) -- ^ (Event of percentage progress, Event when everything finishes)
+-- addArmatures files = do
+--     l <- createArmatureFileInfoAsyncListener
+--     addArmatureFileInfosAsync files l
+--     runWithActions <- askRunWithActions
+--     percentE <- newEventWithTrigger $ \et ->
+--       setOnArmatureFileInfoAsyncProgress l $ \percent -> runWithActions ([et :=> Identity percent], return ())
+--     -- count the number of percentE, all loading is finished when exactly the number of files is fired
+--     finished <- dropWhileE (< 1) percentE
+--     headFinished <- headE finished
+--     return (percentE, () <$ headFinished)

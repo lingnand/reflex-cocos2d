@@ -1,115 +1,99 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE LambdaCase #-}
 module Reflex.Cocos2d.Label
-    (
-      Stroke(Stroke)
-    , strokeColor
-    , strokeSize
-    , Shadow(Shadow)
-    , shadowColor
-    , shadowOffset
-    , shadowBlur
-    , label
+    ( label
     , label_
     -- attrs --
-    , text
-    , horizontalAlign
-    , verticalAlign
-    , fontName
-    , fontSize
-    , fontColor
+    , lineBreakWithoutSpace
+    , maxLineWidth
     , boundingSize
     , boundingWidth
     , boundingHeight
-    , stroke
-    , shadow
+    , clipMargin
+
+    , systemFontName
+    , systemFontSize
     -- re-export --
     , Label
-    , IsLabel(..)
-    ) where
+    , LabelPtr
+    , TextHAlignment(..)
+    , TextVAlignment(..)
+    )
+  where
 
-import Data.Colour
-import Data.Colour.Names
-import Data.Default
 import Diagrams (V2(..))
 import Control.Monad
-import Control.Monad.IO.Class
-import Control.Lens hiding (set)
-import JavaScript.Cocos2d.Node
-import JavaScript.Cocos2d.Label
+import Control.Monad.Trans
+import Control.Lens
+
+import Foreign.Hoppy.Runtime (Decodable(..))
+import Graphics.UI.Cocos2d.Common
+import Graphics.UI.Cocos2d.Node
+import Graphics.UI.Cocos2d.Label
+
 import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Attributes
-
-data Stroke = Stroke { _strokeColor :: Colour Double
-                     , _strokeSize :: Double
-                     } deriving (Show, Eq)
-makeLenses ''Stroke
-
-instance Default Stroke where
-    def = Stroke { _strokeColor = white
-                 , _strokeSize = 0
-                 }
-
-data Shadow = Shadow { _shadowColor :: AlphaColour Double
-                     , _shadowOffset :: V2 Double
-                     , _shadowBlur :: Double
-                     } deriving (Show, Eq)
-makeLenses ''Shadow
-
-instance Default Shadow where
-    def = Shadow { _shadowColor = white `withOpacity` 0.5
-                 , _shadowOffset = 0
-                 , _shadowBlur = 0
-                 }
+import Reflex.Cocos2d.Types
 
 label :: NodeGraph t m => [Prop Label m] -> m Label
 label props = do
-    l <- createLabel
-    set l props
-    askParent >>= flip addChild l
+    l <- liftIO label_create
+    setProps l props
+    view parent >>= liftIO . flip node_addChild l
     return l
 
 label_ :: NodeGraph t m => [Prop Label m] -> m ()
 label_ = void . label
 
----- attrs ----
-text :: (MonadIO m, IsLabel l) => Attrib l m String
-text = attrib getText setText
+---- Attrs ----
+-- General Attributes
+instance MonadIO m => HasText Label m where
+  text = hoistA liftIO $ Attrib' (decode <=< label_getString) label_setString
+  horizontalAlign = hoistA liftIO $ Attrib' label_getHorizontalAlignment label_setHorizontalAlignment
+  verticalAlign = hoistA liftIO $ Attrib' label_getVerticalAlignment label_setVerticalAlignment
+  textColor = hoistA liftIO $ Attrib' (decode <=< label_getTextColor) label_setTextColor
+  outline = SetOnlyAttrib' set
+    where set l (Just (Outline sColor sSize)) = liftIO $ label_enableOutlineWithSize l sColor sSize
+          set l _ = liftIO $ label_disableLabelEffect l LabelEffect_Outline
+  shadow = SetOnlyAttrib' set
+    where set l (Just (Shadow shColor shOffset shBlur)) = liftIO $ label_enableShadowWithOffset l shColor shOffset shBlur
+          set l _ = liftIO $ label_disableLabelEffect l LabelEffect_Shadow
+  glow = SetOnlyAttrib' set
+    where set l (Just (Glow glColor)) = liftIO $ label_enableGlow l glColor
+          set l _ = liftIO $ label_disableLabelEffect l LabelEffect_Glow
 
-horizontalAlign :: (MonadIO m, IsLabel l) => Attrib l m HAlign
-horizontalAlign = attrib getHorizontalAlign setHorizontalAlign
+lineBreakWithoutSpace :: (MonadIO m, LabelPtr l) => SetOnlyAttrib l m Bool
+lineBreakWithoutSpace = SetOnlyAttrib' $ \l -> liftIO . label_setLineBreakWithoutSpace l
 
-verticalAlign :: (MonadIO m, IsLabel l) => Attrib l m VAlign
-verticalAlign = attrib getVerticalAlign setVerticalAlign
+maxLineWidth :: (MonadIO m, LabelPtr l) => Attrib l m Float
+maxLineWidth = hoistA liftIO $ Attrib' label_getMaxLineWidth label_setMaxLineWidth
 
-fontName :: (MonadIO m, IsLabel l) => Attrib l m String
-fontName = attrib getFontName setFontName
+-- | corresponding to setDimensions
+boundingSize :: (MonadIO m, LabelPtr l) => Attrib l m (V2 Float)
+boundingSize = hoistA liftIO $ Attrib' (decode <=< label_getDimensions) (\l (V2 w h) -> label_setDimensions l w h)
 
-fontSize :: (MonadIO m, IsLabel l) => Attrib l m Double
-fontSize = attrib getFontSize setFontSize
+-- | corresponding to setWidth
+boundingWidth :: (MonadIO m, LabelPtr l) => Attrib l m Float
+boundingWidth = hoistA liftIO $ Attrib' label_getWidth label_setWidth
 
-fontColor :: (MonadIO m, IsLabel l) => Attrib l m (Colour Double)
-fontColor = attrib getFontFillColor setFontFillColor
+-- | corresponding to setHeight
+boundingHeight :: (MonadIO m, LabelPtr l) => Attrib l m Float
+boundingHeight = hoistA liftIO $ Attrib' label_getHeight label_setHeight
 
-boundingSize :: (MonadIO m, IsLabel l) => Attrib l m (V2 Double)
-boundingSize = attrib getBoundingSize setBoundingSize
+clipMargin :: (MonadIO m, LabelPtr l) => Attrib l m Bool
+clipMargin = hoistA liftIO $ Attrib' label_isClipMarginEnabled label_setClipMarginEnabled
 
-boundingWidth :: (MonadIO m, IsLabel l) => Attrib l m Double
-boundingWidth = attrib getBoundingWidth setBoundingWidth
+-- System font
+systemFontName :: (MonadIO m, LabelPtr l) => Attrib l m String
+systemFontName = hoistA liftIO $ Attrib' (decode <=< label_getSystemFontName) label_setSystemFontName
 
-boundingHeight :: (MonadIO m, IsLabel l) => Attrib l m Double
-boundingHeight = attrib getBoundingHeight setBoundingHeight
+systemFontSize :: (MonadIO m, LabelPtr l) => Attrib l m Float
+systemFontSize = hoistA liftIO $ Attrib' label_getSystemFontSize label_setSystemFontSize
 
--- | Just Stroke to turn on stroke, Nothing to turn it off
-stroke :: (MonadIO m, IsLabel l) => SetOnlyAttrib l m (Maybe Stroke)
-stroke = SetOnlyAttrib' set
-  where set l (Just (Stroke sColor sSize)) = enableStroke l sColor sSize
-        set l _ = disableStroke l
+-- TODO
+-- lineHeight
+-- lineSpacing
+-- additionalKerning
 
-shadow :: (MonadIO m, IsLabel l) => SetOnlyAttrib l m (Maybe Shadow)
-shadow = SetOnlyAttrib' set
-  where set l (Just (Shadow shColor (V2 offsetX offsetY) shBlur)) = enableShadow l shColor offsetX offsetY shBlur
-        set l _ = disableShadow l
