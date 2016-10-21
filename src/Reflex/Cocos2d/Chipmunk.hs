@@ -205,41 +205,41 @@ body wsp@(SPWrap sp) shapes props = do
     setProps (wsp, wrapped) props
     return wrapped
 
-liftStateVar :: MonadIO m => (b -> StateVar a) -> Attrib b m a
-liftStateVar f = Attrib' (S.get . f) ((S.$=) . f)
+liftStateVar :: MonadIO m => (b -> StateVar a) -> Attrib' b m a
+liftStateVar f = Attrib (S.get . f) ((S.$=) . f)
 {-# INLINE liftStateVar #-}
 
-liftStateVarToFloat :: MonadIO m => (b -> StateVar Double) -> Attrib b m Float
+liftStateVarToFloat :: MonadIO m => (b -> StateVar Double) -> Attrib' b m Float
 liftStateVarToFloat = liftStateVar . (S.mapStateVar realToFrac realToFrac .)
 {-# INLINE liftStateVarToFloat #-}
 
-liftStateVarToMappedFloat :: (MonadIO m, Functor f) => (b -> StateVar (f Double)) -> Attrib b m (f Float)
+liftStateVarToMappedFloat :: (MonadIO m, Functor f) => (b -> StateVar (f Double)) -> Attrib' b m (f Float)
 liftStateVarToMappedFloat = liftStateVar . (S.mapStateVar (fmap realToFrac) (fmap realToFrac) .)
 {-# INLINE liftStateVarToMappedFloat #-}
 
 -- attributes for space
 
-iterations :: (MonadIO m, SpacePtr s) => Attrib s m Int
+iterations :: (MonadIO m, SpacePtr s) => Attrib' s m Int
 iterations = liftStateVar $ S.mapStateVar fromIntegral fromIntegral . H.iterations . toSpace
 
-gravity :: (MonadIO m, SpacePtr s) => Attrib s m (V2 Float)
+gravity :: (MonadIO m, SpacePtr s) => Attrib' s m (V2 Float)
 gravity = liftStateVarToMappedFloat $ H.gravity . toSpace
 
-damping :: (MonadIO m, SpacePtr s) => Attrib s m Float
+damping :: (MonadIO m, SpacePtr s) => Attrib' s m Float
 damping = liftStateVarToFloat $ H.damping . toSpace
 
-collisionSlop :: (MonadIO m, SpacePtr s) => Attrib s m Float
+collisionSlop :: (MonadIO m, SpacePtr s) => Attrib' s m Float
 collisionSlop = liftStateVarToFloat $ H.collisionSlop . toSpace
 
-collisionBias :: (MonadIO m, SpacePtr s) => Attrib s m Float
+collisionBias :: (MonadIO m, SpacePtr s) => Attrib' s m Float
 collisionBias = liftStateVarToFloat $ H.collisionBias . toSpace
 -- attributes for bodies
 
 -- we use Float for everything here...
-mass :: (MonadIO m, BodyPtr b) => Attrib b m Float
+mass :: (MonadIO m, BodyPtr b) => Attrib' b m Float
 mass = liftStateVarToFloat $ S.mapStateVar realToFrac realToFrac . H.mass . toBody
 
-moment :: (MonadIO m, BodyPtr b) => Attrib b m Float
+moment :: (MonadIO m, BodyPtr b) => Attrib' b m Float
 moment = liftStateVarToFloat (H.moment . toBody)
 
 instance (MonadIO m, BodyPtr b) => HasAngle b m where
@@ -248,15 +248,15 @@ instance (MonadIO m, BodyPtr b) => HasAngle b m where
 instance (MonadIO m, BodyPtr b) => HasPosition b m where
     position = liftStateVarToMappedFloat $ H.position . toBody
 
-velocity :: (MonadIO m, BodyPtr b) => Attrib b m (V2 Float)
+velocity :: (MonadIO m, BodyPtr b) => Attrib' b m (V2 Float)
 velocity = liftStateVarToMappedFloat $ H.velocity . toBody
 
-maxVelocity :: (MonadIO m, BodyPtr b) => Attrib b m Float
+maxVelocity :: (MonadIO m, BodyPtr b) => Attrib' b m Float
 maxVelocity = liftStateVarToFloat $ H.maxVelocity . toBody
 
 -- apply a list of forces to the current body
-force :: (MonadIO m, BodyPtr b) => SetOnlyAttrib b m [(V2 Float, P2 Float)]
-force = SetOnlyAttrib' appForces
+force :: (MonadIO m, BodyPtr b) => SetOnlyAttrib' b m [(V2 Float, P2 Float)]
+force = SetOnlyAttrib appForces
   where appForces _ [] = return ()
         appForces bp ((f, offset):fs) = liftIO $ do
           let b = toBody bp
@@ -264,20 +264,20 @@ force = SetOnlyAttrib' appForces
           forM_ fs $ \(f, offset) -> do
             H.applyForce b (realToFrac <$> f) (realToFrac <$> offset)
 
-impulse :: (MonadIO m, BodyPtr b) => SetOnlyAttrib b m (V2 Float, P2 Float)
-impulse = SetOnlyAttrib' $ \bp (imp, offset) -> liftIO $ do
+impulse :: (MonadIO m, BodyPtr b) => SetOnlyAttrib' b m (V2 Float, P2 Float)
+impulse = SetOnlyAttrib $ \bp (imp, offset) -> liftIO $ do
             let b = toBody bp
             H.applyImpulse b (realToFrac <$> imp) (realToFrac <$> offset)
 
-maxAngVel :: (MonadIO m, BodyPtr b) => Attrib b m Float
+maxAngVel :: (MonadIO m, BodyPtr b) => Attrib' b m Float
 maxAngVel = liftStateVarToFloat $ H.maxAngVel . toBody
 
-torque :: (MonadIO m, BodyPtr b) => Attrib b m Float
+torque :: (MonadIO m, BodyPtr b) => Attrib' b m Float
 torque = liftStateVarToFloat $ H.torque . toBody
 
 -- whether the body is added to the space
-active :: (MonadIO m, BodyPtr a, SpacePtr a) => Attrib a m Bool
-active = Attrib' getter setter
+active :: (MonadIO m, BodyPtr a, SpacePtr a) => Attrib' a m Bool
+active = Attrib getter setter
   where setter p act =
           let b = toBody p
               sp = toSpace p

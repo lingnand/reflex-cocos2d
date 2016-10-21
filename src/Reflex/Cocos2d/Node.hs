@@ -116,16 +116,16 @@ sprite_ = void . sprite
 
 ---- Various Attributes ----
 instance (MonadIO m, NodePtr n) => HasPosition n m where
-  position = hoistA liftIO $ Attrib' getPosition setPosition
+  position = hoistA liftIO $ Attrib getPosition setPosition
     where
       getPosition = liftIO . fmap P . (decode <=< node_getPosition)
       setPosition n (P v2) = liftIO $ node_setPosition n v2
-  positionX = hoistA liftIO $ Attrib' node_getPositionX node_setPositionX
-  positionY = hoistA liftIO $ Attrib' node_getPositionY node_setPositionY
+  positionX = hoistA liftIO $ Attrib node_getPositionX node_setPositionX
+  positionY = hoistA liftIO $ Attrib node_getPositionY node_setPositionY
 
 -- | cocos2d uses clockwise degree - we convert it to anticlockwise angle
 instance (MonadIO m, NodePtr n) => HasAngle n m where
-  angle = hoistA liftIO $ Attrib' getter setter
+  angle = hoistA liftIO $ Attrib getter setter
     where
       fromCC = (@@ deg) . negate
       toCC = negate . (^. deg)
@@ -133,58 +133,58 @@ instance (MonadIO m, NodePtr n) => HasAngle n m where
       setter n = node_setRotation n . toCC
 
 -- | anchor expressed as percentage: V2 ([0-1], [0-1])
-anchor :: (MonadIO m, NodePtr n) => Attrib n m (V2 Float)
-anchor = hoistA liftIO $ Attrib' (decode <=< node_getAnchorPoint) node_setAnchorPoint
+anchor :: (MonadIO m, NodePtr n) => Attrib' n m (V2 Float)
+anchor = hoistA liftIO $ Attrib (decode <=< node_getAnchorPoint) node_setAnchorPoint
 
-anchorX :: (MonadIO m, NodePtr n) => Attrib n m Float
-anchorX = hoistA liftIO $ Attrib' getter setter
+anchorX :: (MonadIO m, NodePtr n) => Attrib' n m Float
+anchorX = hoistA liftIO $ Attrib getter setter
   where
     getter = vec2_x_get <=< node_getAnchorPoint
     setter n x = do
       y <- vec2_y_get =<< node_getAnchorPoint n
       node_setAnchorPoint n (V2 x y)
 
-anchorY :: (MonadIO m, NodePtr n) => Attrib n m Float
-anchorY = hoistA liftIO $ Attrib' getter setter
+anchorY :: (MonadIO m, NodePtr n) => Attrib' n m Float
+anchorY = hoistA liftIO $ Attrib getter setter
   where
     getter = vec2_y_get <=< node_getAnchorPoint
     setter n y = do
       x <- vec2_x_get =<< node_getAnchorPoint n
       node_setAnchorPoint n (V2 x y)
 
-skew :: (MonadIO m, NodePtr n) => Attrib n m (V2 Float)
-skew = hoistA liftIO $ Attrib' getter setter
+skew :: (MonadIO m, NodePtr n) => Attrib' n m (V2 Float)
+skew = hoistA liftIO $ Attrib getter setter
   where
     getter n = V2 <$> node_getSkewX n <*> node_getSkewY n
     setter n (V2 x y) = node_setSkewX n x >> node_setSkewY n y
 
-skewX :: (MonadIO m, NodePtr n) => Attrib n m Float
-skewX = hoistA liftIO $ Attrib' node_getSkewX node_setSkewX
+skewX :: (MonadIO m, NodePtr n) => Attrib' n m Float
+skewX = hoistA liftIO $ Attrib node_getSkewX node_setSkewX
 
-skewY :: (MonadIO m, NodePtr n) => Attrib n m Float
-skewY = hoistA liftIO $ Attrib' node_getSkewY node_setSkewY
+skewY :: (MonadIO m, NodePtr n) => Attrib' n m Float
+skewY = hoistA liftIO $ Attrib node_getSkewY node_setSkewY
 
-zOrder :: (MonadIO m, NodePtr n) => Attrib n m Int
-zOrder = hoistA liftIO $ Attrib' node_getLocalZOrder node_setLocalZOrder
+zOrder :: (MonadIO m, NodePtr n) => Attrib' n m Int
+zOrder = hoistA liftIO $ Attrib node_getLocalZOrder node_setLocalZOrder
 
-scale :: (MonadIO m, NodePtr n) => Attrib n m (V2 Float)
-scale = hoistA liftIO $ Attrib' getter setter
+scale :: (MonadIO m, NodePtr n) => Attrib' n m (V2 Float)
+scale = hoistA liftIO $ Attrib getter setter
   where
     getter n = V2 <$> node_getScaleX n <*> node_getScaleY n
     setter n (V2 x y) = node_setScaleX n x >> node_setScaleY n y
 
-scaleX :: (MonadIO m, NodePtr n) => Attrib n m Float
-scaleX = hoistA liftIO $ Attrib' node_getScaleX node_setScaleX
+scaleX :: (MonadIO m, NodePtr n) => Attrib' n m Float
+scaleX = hoistA liftIO $ Attrib node_getScaleX node_setScaleX
 
-scaleY :: (MonadIO m, NodePtr n) => Attrib n m Float
-scaleY = hoistA liftIO $ Attrib' node_getScaleY node_setScaleY
+scaleY :: (MonadIO m, NodePtr n) => Attrib' n m Float
+scaleY = hoistA liftIO $ Attrib node_getScaleY node_setScaleY
 
-visible :: (MonadIO m, NodePtr n) => Attrib n m Bool
-visible = hoistA liftIO $ Attrib' node_isVisible node_setVisible
+visible :: (MonadIO m, NodePtr n) => Attrib' n m Bool
+visible = hoistA liftIO $ Attrib node_isVisible node_setVisible
 
 -- | Color; mostly only useful for LayerColor & Sprite
-color :: (MonadIO m, NodePtr n) => Attrib n m (Colour Float)
-color = hoistA liftIO $ Attrib' (decode <=< node_getColor) node_setColor
+color :: (MonadIO m, NodePtr n) => Attrib' n m (Colour Float)
+color = hoistA liftIO $ Attrib (decode <=< node_getColor) node_setColor
 
 node_getOpacityInFloat :: NodePtr n => n -> IO Float
 node_getOpacityInFloat n = (/ 255) . fromIntegral <$> node_getOpacity n
@@ -192,11 +192,11 @@ node_getOpacityInFloat n = (/ 255) . fromIntegral <$> node_getOpacity n
 node_setOpacityInFloat :: NodePtr n => n -> Float -> IO ()
 node_setOpacityInFloat n a = node_setOpacity n (round $ a * 255)
 
-opacity :: (MonadIO m, NodePtr n) => Attrib n m Float
-opacity = hoistA liftIO $ Attrib' node_getOpacityInFloat node_setOpacityInFloat
+opacity :: (MonadIO m, NodePtr n) => Attrib' n m Float
+opacity = hoistA liftIO $ Attrib node_getOpacityInFloat node_setOpacityInFloat
 
-alphaColor :: (MonadIO m, NodePtr n) => Attrib n m (AlphaColour Float)
-alphaColor = hoistA liftIO $ Attrib' getter setter
+alphaColor :: (MonadIO m, NodePtr n) => Attrib' n m (AlphaColour Float)
+alphaColor = hoistA liftIO $ Attrib getter setter
   where
     getter n =
       withOpacity <$> (node_getColor n >>= decode) <*> node_getOpacityInFloat n
@@ -207,60 +207,60 @@ alphaColor = hoistA liftIO $ Attrib' getter setter
             | otherwise = black
       node_setColor n c >> node_setOpacityInFloat n a
 
-cascadeColor :: (MonadIO m, NodePtr n) => Attrib n m Bool
-cascadeColor = hoistA liftIO $ Attrib' node_isCascadeColorEnabled node_setCascadeColorEnabled
+cascadeColor :: (MonadIO m, NodePtr n) => Attrib' n m Bool
+cascadeColor = hoistA liftIO $ Attrib node_isCascadeColorEnabled node_setCascadeColorEnabled
 
-cascadeOpacity :: (MonadIO m, NodePtr n) => Attrib n m Bool
-cascadeOpacity = hoistA liftIO $ Attrib' node_isCascadeOpacityEnabled node_setCascadeOpacityEnabled
+cascadeOpacity :: (MonadIO m, NodePtr n) => Attrib' n m Bool
+cascadeOpacity = hoistA liftIO $ Attrib node_isCascadeOpacityEnabled node_setCascadeOpacityEnabled
 
 -- | Content size; not useful for Sprite
-contentSize :: (MonadIO m, NodePtr n) => Attrib n m (V2 Float)
-contentSize = hoistA liftIO $ Attrib' (decode <=< node_getContentSize) node_setContentSize
+contentSize :: (MonadIO m, NodePtr n) => Attrib' n m (V2 Float)
+contentSize = hoistA liftIO $ Attrib (decode <=< node_getContentSize) node_setContentSize
 
-width :: (MonadIO m, NodePtr n) => Attrib n m Float
-width = hoistA liftIO $ Attrib' getter setter
+width :: (MonadIO m, NodePtr n) => Attrib' n m Float
+width = hoistA liftIO $ Attrib getter setter
   where
     getter = size_width_get <=< node_getContentSize
     setter n w = do
       h <- size_height_get =<< node_getContentSize n
       node_setContentSize n (V2 w h)
 
-height :: (MonadIO m, NodePtr n) => Attrib n m Float
-height = hoistA liftIO $ Attrib' getter setter
+height :: (MonadIO m, NodePtr n) => Attrib' n m Float
+height = hoistA liftIO $ Attrib getter setter
   where
     getter = size_height_get <=< node_getContentSize
     setter n h = do
       w <- size_width_get =<< node_getContentSize n
       node_setContentSize n (V2 w h)
 
-texture :: (MonadIO m, SpritePtr n) => SetOnlyAttrib n m Texture2D
-texture = SetOnlyAttrib' $ \sp -> liftIO . sprite_setTexture sp
+texture :: (MonadIO m, SpritePtr n) => SetOnlyAttrib' n m Texture2D
+texture = SetOnlyAttrib $ \sp -> liftIO . sprite_setTexture sp
 
 -- | Currently modelled as non-stoppable action that gets run when set
--- action :: (MonadIO m, NodePtr n) => SetOnlyAttrib n m Action
--- action = SetOnlyAttrib runAction
+-- action :: (MonadIO m, NodePtr n) => SetOnlyAttrib' n m Action
+-- action = SetOnlyAttrib' runAction
 -- | Set SpriteFrame by name.
 -- NOTE: the SpriteFrame has to be already inside the SpriteFrameCache
--- spriteName :: (MonadIO m, SpritePtr n) => SetOnlyAttrib n m String
--- spriteName = SetOnlyAttrib $ \sp -> liftIO . sprite_setSpriteFrameWithName sp
+-- spriteName :: (MonadIO m, SpritePtr n) => SetOnlyAttrib' n m String
+-- spriteName = SetOnlyAttrib' $ \sp -> liftIO . sprite_setSpriteFrameWithName sp
 -- | Set texture by its filename
 -- NOTE: this automatically adds the texture to the texture cache if it's not already there
-textureFilename :: (MonadIO m, SpritePtr n) => SetOnlyAttrib n m String
-textureFilename = SetOnlyAttrib' $ \sp name -> liftIO $ case name of
+textureFilename :: (MonadIO m, SpritePtr n) => SetOnlyAttrib' n m String
+textureFilename = SetOnlyAttrib $ \sp name -> liftIO $ case name of
                     [] -> sprite_setTexture sp (nullptr :: Texture2D) -- reset sprite to blank
                     _ -> sprite_setTextureWithFilename sp name
 
-flipped :: (MonadIO m, SpritePtr n) => Attrib n m (V2 Bool)
-flipped = hoistA liftIO $ Attrib' getter setter
+flipped :: (MonadIO m, SpritePtr n) => Attrib' n m (V2 Bool)
+flipped = hoistA liftIO $ Attrib getter setter
   where
     getter n = V2 <$> sprite_isFlippedX n <*> sprite_isFlippedY n
     setter n (V2 x y) = sprite_setFlippedX n x >> sprite_setFlippedY n y
 
-flippedX :: (MonadIO m, SpritePtr n) => Attrib n m Bool
-flippedX = hoistA liftIO $ Attrib' sprite_isFlippedX sprite_setFlippedX
+flippedX :: (MonadIO m, SpritePtr n) => Attrib' n m Bool
+flippedX = hoistA liftIO $ Attrib sprite_isFlippedX sprite_setFlippedX
 
-flippedY :: (MonadIO m, SpritePtr n) => Attrib n m Bool
-flippedY = hoistA liftIO $ Attrib' sprite_isFlippedY sprite_setFlippedY
+flippedY :: (MonadIO m, SpritePtr n) => Attrib' n m Bool
+flippedY = hoistA liftIO $ Attrib sprite_isFlippedY sprite_setFlippedY
 
 ----- Utils
 getChildByName' :: (MonadIO m, NodeValue n) => (Node -> a) -> n -> String -> m (Maybe a)

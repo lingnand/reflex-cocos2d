@@ -50,47 +50,47 @@ label_ = void . label
 ---- Attrs ----
 -- General Attributes
 instance MonadIO m => HasText Label m where
-  text = hoistA liftIO $ Attrib' (decode <=< label_getString) label_setString
-  horizontalAlign = hoistA liftIO $ Attrib' label_getHorizontalAlignment label_setHorizontalAlignment
-  verticalAlign = hoistA liftIO $ Attrib' label_getVerticalAlignment label_setVerticalAlignment
-  textColor = hoistA liftIO $ Attrib' (decode <=< label_getTextColor) label_setTextColor
-  outline = SetOnlyAttrib' set
+  text = hoistA liftIO $ Attrib (decode <=< label_getString) label_setString
+  horizontalAlign = hoistA liftIO $ Attrib label_getHorizontalAlignment label_setHorizontalAlignment
+  verticalAlign = hoistA liftIO $ Attrib label_getVerticalAlignment label_setVerticalAlignment
+  textColor = hoistA liftIO $ Attrib (decode <=< label_getTextColor) label_setTextColor
+  outline = SetOnlyAttrib set
     where set l (Just (Outline sColor sSize)) = liftIO $ label_enableOutlineWithSize l sColor sSize
           set l _ = liftIO $ label_disableLabelEffect l LabelEffect_Outline
-  shadow = SetOnlyAttrib' set
+  shadow = SetOnlyAttrib set
     where set l (Just (Shadow shColor shOffset shBlur)) = liftIO $ label_enableShadowWithOffset l shColor shOffset shBlur
           set l _ = liftIO $ label_disableLabelEffect l LabelEffect_Shadow
-  glow = SetOnlyAttrib' set
+  glow = SetOnlyAttrib set
     where set l (Just (Glow glColor)) = liftIO $ label_enableGlow l glColor
           set l _ = liftIO $ label_disableLabelEffect l LabelEffect_Glow
 
-lineBreakWithoutSpace :: (MonadIO m, LabelPtr l) => SetOnlyAttrib l m Bool
-lineBreakWithoutSpace = SetOnlyAttrib' $ \l -> liftIO . label_setLineBreakWithoutSpace l
+lineBreakWithoutSpace :: (MonadIO m, LabelPtr l) => SetOnlyAttrib' l m Bool
+lineBreakWithoutSpace = SetOnlyAttrib $ \l -> liftIO . label_setLineBreakWithoutSpace l
 
-maxLineWidth :: (MonadIO m, LabelPtr l) => Attrib l m Float
-maxLineWidth = hoistA liftIO $ Attrib' label_getMaxLineWidth label_setMaxLineWidth
+maxLineWidth :: (MonadIO m, LabelPtr l) => Attrib' l m Float
+maxLineWidth = hoistA liftIO $ Attrib label_getMaxLineWidth label_setMaxLineWidth
 
 -- | corresponding to setDimensions
-boundingSize :: (MonadIO m, LabelPtr l) => Attrib l m (V2 Float)
-boundingSize = hoistA liftIO $ Attrib' (decode <=< label_getDimensions) (\l (V2 w h) -> label_setDimensions l w h)
+boundingSize :: (MonadIO m, LabelPtr l) => Attrib' l m (V2 Float)
+boundingSize = hoistA liftIO $ Attrib (decode <=< label_getDimensions) (\l (V2 w h) -> label_setDimensions l w h)
 
 -- | corresponding to setWidth
-boundingWidth :: (MonadIO m, LabelPtr l) => Attrib l m Float
-boundingWidth = hoistA liftIO $ Attrib' label_getWidth label_setWidth
+boundingWidth :: (MonadIO m, LabelPtr l) => Attrib' l m Float
+boundingWidth = hoistA liftIO $ Attrib label_getWidth label_setWidth
 
 -- | corresponding to setHeight
-boundingHeight :: (MonadIO m, LabelPtr l) => Attrib l m Float
-boundingHeight = hoistA liftIO $ Attrib' label_getHeight label_setHeight
+boundingHeight :: (MonadIO m, LabelPtr l) => Attrib' l m Float
+boundingHeight = hoistA liftIO $ Attrib label_getHeight label_setHeight
 
-clipMargin :: (MonadIO m, LabelPtr l) => Attrib l m Bool
-clipMargin = hoistA liftIO $ Attrib' label_isClipMarginEnabled label_setClipMarginEnabled
+clipMargin :: (MonadIO m, LabelPtr l) => Attrib' l m Bool
+clipMargin = hoistA liftIO $ Attrib label_isClipMarginEnabled label_setClipMarginEnabled
 
 -- System font
-systemFontName :: (MonadIO m, LabelPtr l) => Attrib l m String
-systemFontName = hoistA liftIO $ Attrib' (decode <=< label_getSystemFontName) label_setSystemFontName
+systemFontName :: (MonadIO m, LabelPtr l) => Attrib' l m String
+systemFontName = hoistA liftIO $ Attrib (decode <=< label_getSystemFontName) label_setSystemFontName
 
-systemFontSize :: (MonadIO m, LabelPtr l) => Attrib l m Float
-systemFontSize = hoistA liftIO $ Attrib' label_getSystemFontSize label_setSystemFontSize
+systemFontSize :: (MonadIO m, LabelPtr l) => Attrib' l m Float
+systemFontSize = hoistA liftIO $ Attrib label_getSystemFontSize label_setSystemFontSize
 
 -- TODO
 -- lineHeight

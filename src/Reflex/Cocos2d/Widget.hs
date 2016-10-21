@@ -169,17 +169,17 @@ getWidgetEvents :: (NodeGraph t m, WidgetPtr w) => w -> m (WidgetEvents t)
 getWidgetEvents w = WidgetEvents <$> getWidgetTouchEvents w <*> getWidgetClicks w
 
 instance (MonadIO m) => HasText Text m where
-  text = hoistA liftIO $ Attrib' (decode <=< text_getString) text_setString
-  horizontalAlign = hoistA liftIO $ Attrib' text_getTextHorizontalAlignment text_setTextHorizontalAlignment
-  verticalAlign = hoistA liftIO $ Attrib' text_getTextVerticalAlignment text_setTextVerticalAlignment
-  textColor = hoistA liftIO $ Attrib' (decode <=< text_getTextColor) text_setTextColor
-  outline = SetOnlyAttrib' set
+  text = hoistA liftIO $ Attrib (decode <=< text_getString) text_setString
+  horizontalAlign = hoistA liftIO $ Attrib text_getTextHorizontalAlignment text_setTextHorizontalAlignment
+  verticalAlign = hoistA liftIO $ Attrib text_getTextVerticalAlignment text_setTextVerticalAlignment
+  textColor = hoistA liftIO $ Attrib (decode <=< text_getTextColor) text_setTextColor
+  outline = SetOnlyAttrib set
     where set l (Just (Outline sColor sSize)) = liftIO $ text_enableOutlineWithSize l sColor sSize
           set l _ = liftIO $ text_disableLabelEffect l LabelEffect_Outline
-  shadow = SetOnlyAttrib' set
+  shadow = SetOnlyAttrib set
     where set l (Just (Shadow shColor shOffset shBlur)) = liftIO $ text_enableShadowWithOffset l shColor shOffset shBlur
           set l _ = liftIO $ text_disableLabelEffect l LabelEffect_Shadow
-  glow = SetOnlyAttrib' set
+  glow = SetOnlyAttrib set
     where set l (Just (Glow glColor)) = liftIO $ text_enableGlow l glColor
           set l _ = liftIO $ text_disableLabelEffect l LabelEffect_Glow
 
@@ -208,23 +208,23 @@ button props = do
     we <- getWidgetClicks but
     return (but, we)
 
-positionType :: (MonadIO m, WidgetPtr w) => Attrib w m PositionType
-positionType = hoistA liftIO $ Attrib' widget_getPositionType widget_setPositionType
+positionType :: (MonadIO m, WidgetPtr w) => Attrib' w m PositionType
+positionType = hoistA liftIO $ Attrib widget_getPositionType widget_setPositionType
 
-sizeType ::  (MonadIO m, WidgetPtr w) => Attrib w m SizeType
-sizeType = hoistA liftIO $  Attrib' widget_getSizeType widget_setSizeType
+sizeType ::  (MonadIO m, WidgetPtr w) => Attrib' w m SizeType
+sizeType = hoistA liftIO $  Attrib widget_getSizeType widget_setSizeType
 
-sizePercent :: (MonadIO m, WidgetPtr w) => Attrib w m (V2 Float)
-sizePercent = hoistA liftIO $ Attrib' (decode <=< widget_getSizePercent) widget_setSizePercent
+sizePercent :: (MonadIO m, WidgetPtr w) => Attrib' w m (V2 Float)
+sizePercent = hoistA liftIO $ Attrib (decode <=< widget_getSizePercent) widget_setSizePercent
 
-positionPercent :: (MonadIO m, WidgetPtr w) => Attrib w m (V2 Float)
-positionPercent = hoistA liftIO $ Attrib' (decode <=< widget_getPositionPercent) widget_setPositionPercent
+positionPercent :: (MonadIO m, WidgetPtr w) => Attrib' w m (V2 Float)
+positionPercent = hoistA liftIO $ Attrib (decode <=< widget_getPositionPercent) widget_setPositionPercent
 
-titleText :: (MonadIO m, ButtonPtr b) => Attrib b m String
-titleText = hoistA liftIO $ Attrib' button_getTitleText button_setTitleText
+titleText :: (MonadIO m, ButtonPtr b) => Attrib' b m String
+titleText = hoistA liftIO $ Attrib button_getTitleText button_setTitleText
 
-titleColor :: (MonadIO m, ButtonPtr b) => Attrib b m (Colour Float)
-titleColor = hoistA liftIO $ Attrib' button_getTitleColor button_setTitleColor
+titleColor :: (MonadIO m, ButtonPtr b) => Attrib' b m (Colour Float)
+titleColor = hoistA liftIO $ Attrib button_getTitleColor button_setTitleColor
 
-titleFontSize :: (MonadIO m, ButtonPtr b) => Attrib b m Float
-titleFontSize = hoistA liftIO $ Attrib' button_getTitleFontSize button_setTitleFontSize
+titleFontSize :: (MonadIO m, ButtonPtr b) => Attrib' b m Float
+titleFontSize = hoistA liftIO $ Attrib button_getTitleFontSize button_setTitleFontSize

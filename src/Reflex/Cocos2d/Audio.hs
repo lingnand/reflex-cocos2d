@@ -47,17 +47,17 @@ preloadAudio filename = do
       audioEngine_preloadWithCallback filename $ \success -> run ([tr ==> success], return ())
       return $ pure ()
 
-audioState :: MonadIO m => SetOnlyAttrib AudioInstance m AudioStateCommand
-audioState = SetOnlyAttrib' $ \id cmd -> liftIO $ case cmd of
+audioState :: MonadIO m => SetOnlyAttrib' AudioInstance m AudioStateCommand
+audioState = SetOnlyAttrib $ \id cmd -> liftIO $ case cmd of
               AudioState_Play -> audioEngine_resume id
               AudioState_Pause -> audioEngine_pause id
               AudioState_Stop -> audioEngine_stop id
 
-loop :: MonadIO m => Attrib AudioInstance m Bool
-loop = hoistA liftIO $ Attrib' audioEngine_isLoop audioEngine_setLoop
+loop :: MonadIO m => Attrib' AudioInstance m Bool
+loop = hoistA liftIO $ Attrib audioEngine_isLoop audioEngine_setLoop
 
-volume :: MonadIO m => Attrib AudioInstance m Float
-volume = hoistA liftIO $ Attrib' audioEngine_getVolume audioEngine_setVolume
+volume :: MonadIO m => Attrib' AudioInstance m Float
+volume = hoistA liftIO $ Attrib audioEngine_getVolume audioEngine_setVolume
 
-currentTime :: MonadIO m => Attrib AudioInstance m Float
-currentTime = hoistA liftIO $ Attrib' audioEngine_getCurrentTime audioEngine_setCurrentTime
+currentTime :: MonadIO m => Attrib' AudioInstance m Float
+currentTime = hoistA liftIO $ Attrib audioEngine_getCurrentTime audioEngine_setCurrentTime
