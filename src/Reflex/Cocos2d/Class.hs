@@ -10,7 +10,8 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 module Reflex.Cocos2d.Class
-    ( NodeGraphEnv(NodeGraphEnv)
+    ( Time
+    , NodeGraphEnv(NodeGraphEnv)
     , parent
     , windowSize
     , postBuildEvent
@@ -60,16 +61,18 @@ import Reflex.State
 import Reflex.Host.Class
 import Graphics.UI.Cocos2d.Node
 
+type Time = Float -- ^ in seconds
+
 data NodeGraphEnv t = NodeGraphEnv
     { _parent  :: !Node
     , _windowSize     :: V2 Float
     , _postBuildEvent :: !(Event t ())
-    , _frameTicks     :: !(Event t Float) -- ^ Ticks for each frame in seconds
+    , _frameTicks     :: !(Event t Time) -- ^ Ticks for each frame
     , _runWithActions :: !(([DSum (EventTrigger t) Identity], IO ()) -> IO ())
     }
 
 frameTicks ::
-  forall t. Lens' (NodeGraphEnv t) (Event t Float)
+  forall t. Lens' (NodeGraphEnv t) (Event t Time)
 frameTicks
   f
   (NodeGraphEnv p winSize pb ticks run)

@@ -382,7 +382,7 @@ accumKeysDown (KeyboardEvents pressedE releasedE) = do
 -- | Delay an Event by the given amount of seconds
 -- TODO: every time this is called the previous "delayed" is invalidated
 -- we need to have a unique key for every invocation
--- delay :: NodeGraph t m => Float -> Event t a -> m (Event t a)
+-- delay :: NodeGraph t m => Time -> Event t a -> m (Event t a)
 -- delay dt e = do
 --     runWithActions <- askRunWithActions
 --     (e', trigger) <- newEventWithTriggerRef

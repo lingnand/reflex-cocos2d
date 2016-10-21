@@ -21,6 +21,7 @@ library
                      , Reflex.Cocos2d.Widget
                      , Reflex.Cocos2d.Audio
                      , Reflex.Cocos2d.CocoStudio
+                     , Reflex.Cocos2d.Chipmunk
                      , Reflex.Cocos2d.Internal
                      , Reflex.Extra
                      , Reflex.State
@@ -44,6 +45,8 @@ library
                      , exception-transformers
                      , free
                      , cocos2d-hs
+                     , Hipmunk
+                     , StateVar
                      -- TODO: integrate the func into cocos2d-hs?
                      , hoppy-runtime
   hs-source-dirs:      src

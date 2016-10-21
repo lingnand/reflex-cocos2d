@@ -4,7 +4,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE JavaScriptFFI #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Reflex.Cocos2d.Node
     ( node
@@ -16,8 +15,6 @@ module Reflex.Cocos2d.Node
     , sprite
     , sprite_
     -- attrs --
-    , eDir
-    , rot
     , anchor
     , anchorX
     , anchorY
@@ -69,9 +66,7 @@ import Data.Colour
 import Control.Monad
 import Control.Monad.Trans
 import Control.Lens hiding (flipped, over)
-import Diagrams (Point(..), V2(..), Angle, (@@), deg, _theta)
-import Diagrams.Direction
-import Diagrams.TwoD.Vector
+import Diagrams (Point(..), V2(..), (@@), deg)
 import Graphics.UI.Cocos2d.Common
 import Graphics.UI.Cocos2d.Texture
 import Graphics.UI.Cocos2d.Node
@@ -128,17 +123,12 @@ instance (MonadIO m, NodePtr n) => HasPosition n m where
   positionX = hoistA liftIO $ Attrib' node_getPositionX node_setPositionX
   positionY = hoistA liftIO $ Attrib' node_getPositionY node_setPositionY
 
--- | Convert rotation angle (CCW) to direction
-eDir :: Floating n => Angle n -> Direction V2 n
-eDir = dir . e
-
--- | cocos2d uses clockwise degree - we convert it to agnostic Direction (where xDir is *without*
--- any rotation)
-instance (MonadIO m, NodePtr n) => HasRotation n m where
-  rotation = hoistA liftIO $ Attrib' getter setter
+-- | cocos2d uses clockwise degree - we convert it to anticlockwise angle
+instance (MonadIO m, NodePtr n) => HasAngle n m where
+  angle = hoistA liftIO $ Attrib' getter setter
     where
-      fromCC = eDir . (@@ deg) . negate
-      toCC = negate . (^. _theta . deg)
+      fromCC = (@@ deg) . negate
+      toCC = negate . (^. deg)
       getter = liftIO . fmap fromCC . node_getRotation
       setter n = node_setRotation n . toCC
 

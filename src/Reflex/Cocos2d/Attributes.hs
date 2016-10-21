@@ -26,18 +26,17 @@ module Reflex.Cocos2d.Attributes
     , chosen
     -- attrs --
     , HasPosition(..)
-    , HasRotation(..)
+    , HasAngle(..)
     , HasText(..)
-    , Transform(Transform)
-    , HasPos(..)
-    , HasRot(..)
-    , transform
+    , positionFrom
+    , angleFrom
+    , transformFrom
     )
   where
 
 import Data.Colour
 import Data.Functor.Contravariant
-import Diagrams (Point(..), V2(..), P2, (^&), _x, _y, Direction, V2)
+import Diagrams (Point(..), V2(..), P2, (^&), _x, _y, Angle)
 import Control.Lens hiding (chosen, transform)
 import Control.Monad.Trans
 import Reflex.Host.Class
@@ -88,7 +87,7 @@ instance Contravariant (SetOnlyAttrib' w m b) where
 get :: IsGettable n m a attr => n -> attr -> m a
 get = flip getter
 
-setProps :: Monad m => n -> [Prop n m] -> m ()
+setProps :: Monad m => w -> [Prop w m] -> m ()
 setProps _ [] = return ()
 setProps n ((s := a):ps) = setter s n a >> setProps n ps
 
@@ -155,59 +154,45 @@ chosen = choose id
 
 ---- General Attribs ----
 
-class Monad m => HasPosition n m where
-  position :: Attrib n m (P2 Float)
-  position = Attrib' (\n -> (^&) <$> gx n <*> gy n)
-                     (\n p -> let P (V2 x y) = p in sx n x >> sy n y)
+class Monad m => HasPosition w m where
+  position :: Attrib w m (P2 Float)
+  position = Attrib' (\w -> (^&) <$> gx w <*> gy w)
+                     (\w p -> let P (V2 x y) = p in sx w x >> sy w y)
     where Attrib' gx sx = positionX
           Attrib' gy sy = positionY
-  positionX :: Attrib n m Float
+  positionX :: Attrib w m Float
   positionX = Attrib' getter' setter'
     where Attrib' getter setter = position
-          getter' n = (^._x) <$> getter n
-          setter' n x = getter n >>= setter n . (_x .~ x)
-  positionY :: Attrib n m Float
+          getter' w = (^._x) <$> getter w
+          setter' w x = getter w >>= setter w . (_x .~ x)
+  positionY :: Attrib w m Float
   positionY = Attrib' getter' setter'
     where Attrib' getter setter = position
-          getter' n = (^._y) <$> getter n
-          setter' n y = getter n >>= setter n . (_y .~ y)
+          getter' w = (^._y) <$> getter w
+          setter' w y = getter w >>= setter w . (_y .~ y)
 
-class HasRotation n m where
-  rotation :: Attrib n m (Direction V2 Float)
+class Monad m => HasAngle w m where
+  angle :: Attrib w m (Angle Float)
 
 -- text related general attributes
-class HasText n m where
-  text :: Attrib n m String
-  horizontalAlign :: Attrib n m TextHAlignment
-  verticalAlign :: Attrib n m TextVAlignment
-  textColor :: Attrib n m (AlphaColour Float)
-  outline :: SetOnlyAttrib n m (Maybe Outline)
-  shadow :: SetOnlyAttrib n m (Maybe Shadow)
-  glow :: SetOnlyAttrib n m (Maybe Glow)
+class Monad m => HasText w m where
+  text :: Attrib w m String
+  horizontalAlign :: Attrib w m TextHAlignment
+  verticalAlign :: Attrib w m TextVAlignment
+  textColor :: Attrib w m (AlphaColour Float)
+  outline :: SetOnlyAttrib w m (Maybe Outline)
+  shadow :: SetOnlyAttrib w m (Maybe Shadow)
+  glow :: SetOnlyAttrib w m (Maybe Glow)
 
--- Transform is the combination of position and rotation
-data Transform = Transform
-               { _transformPos :: P2 Float
-               , _transformRot :: Direction V2 Float
-               } deriving (Show, Read, Eq, Ord)
+-- take position from a given widget that has position
+positionFrom :: (HasPosition a m, HasPosition w m) => SetOnlyAttrib w m a
+positionFrom = SetOnlyAttrib' $ \w a -> get a position >>= setter position w
 
-class HasPos s a | s -> a where
-  pos :: Lens' s a
-instance HasPos Transform (P2 Float) where
-  {-# INLINE pos #-}
-  pos f (Transform p r)
-    = fmap
-        (\ p' -> Transform p' r) (f p)
-class HasRot s a | s -> a where
-  rot :: Lens' s a
-instance HasRot Transform (Direction V2 Float) where
-  {-# INLINE rot #-}
-  rot f (Transform p r)
-    = fmap
-        (\ r' -> Transform p r') (f r)
+angleFrom :: (HasAngle a m, HasAngle w m) => SetOnlyAttrib w m a
+angleFrom = SetOnlyAttrib' $ \w a -> get a angle >>= setter angle w
 
-transform :: (HasPosition n m, HasRotation n m) => Attrib n m Transform
-transform = Attrib' (\n -> Transform <$> gp n <*> gr n)
-                    (\n (Transform p r) -> sp n p >> sr n r)
-  where Attrib' gp sp = position
-        Attrib' gr sr = rotation
+transformFrom :: (HasAngle a m, HasPosition a m, HasAngle w m, HasPosition w m)
+              => SetOnlyAttrib w m a
+transformFrom = SetOnlyAttrib' $ \w a -> fp w a >> fa w a
+  where SetOnlyAttrib' fp = positionFrom
+        SetOnlyAttrib' fa = angleFrom
