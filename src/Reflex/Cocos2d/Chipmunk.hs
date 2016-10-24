@@ -136,8 +136,10 @@ instance SpacePtr s => SpacePtr (s, a) where
 
 type SpaceStep = Time
 
-space :: NodeGraph t m => Event t Time -> [Prop (Space a) m] -> m (Space a, Event t SpaceStep)
-space ts props = do
+-- | create and run a space at frame rate
+space :: NodeGraph t m => [Prop (Space a) m] -> m (Space a, Event t SpaceStep)
+space props = do
+    ts <- view frameTicks
     sp <- liftIO H.newSpace
     let wrapped = SPWrap sp
     setProps wrapped props
