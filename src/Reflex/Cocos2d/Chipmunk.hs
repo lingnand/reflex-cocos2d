@@ -27,7 +27,9 @@ module Reflex.Cocos2d.Chipmunk
     , collisionSlop
     , collisionBias
 
-    , CollisionEvents
+    , CollisionEvents(CollisionEvents)
+    , collisionBegan
+    , collisionEnded
     , getCollisionEvents
 
     , body
@@ -152,7 +154,16 @@ data CollisionEvents t a = CollisionEvents
     , _collisionEnded :: Event t (Shape a, Shape a)
     }
 
--- TODO: lens
+collisionBegan :: Lens' (CollisionEvents t a) (Event t (Shape a, Shape a))
+collisionBegan f (CollisionEvents began ended)
+  = fmap
+      (\ began' -> CollisionEvents began' ended) (f began)
+{-# INLINE collisionBegan #-}
+collisionEnded :: Lens' (CollisionEvents t a) (Event t (Shape a, Shape a))
+collisionEnded f (CollisionEvents began ended)
+  = fmap
+      (\ ended' -> CollisionEvents began ended') (f ended)
+{-# INLINE collisionEnded #-}
 
 getCollisionEvents :: NodeGraph t m => Space a -> m (CollisionEvents t a)
 getCollisionEvents (SPWrap sp) = do
