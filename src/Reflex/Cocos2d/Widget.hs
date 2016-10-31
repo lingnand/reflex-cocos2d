@@ -168,18 +168,18 @@ getWidgetClicks w = do
 getWidgetEvents :: (NodeGraph t m, WidgetPtr w) => w -> m (WidgetEvents t)
 getWidgetEvents w = WidgetEvents <$> getWidgetTouchEvents w <*> getWidgetClicks w
 
-instance (MonadIO m) => HasText Text m where
+instance (MonadIO m) => HasRWTextAttrib Text m where
   text = hoistA liftIO $ Attrib (decode <=< text_getString) text_setString
   horizontalAlign = hoistA liftIO $ Attrib text_getTextHorizontalAlignment text_setTextHorizontalAlignment
   verticalAlign = hoistA liftIO $ Attrib text_getTextVerticalAlignment text_setTextVerticalAlignment
   textColor = hoistA liftIO $ Attrib (decode <=< text_getTextColor) text_setTextColor
-  outline = SetOnlyAttrib set
+  outline = WOAttrib set
     where set l (Just (Outline sColor sSize)) = liftIO $ text_enableOutlineWithSize l sColor sSize
           set l _ = liftIO $ text_disableLabelEffect l LabelEffect_Outline
-  shadow = SetOnlyAttrib set
+  shadow = WOAttrib set
     where set l (Just (Shadow shColor shOffset shBlur)) = liftIO $ text_enableShadowWithOffset l shColor shOffset shBlur
           set l _ = liftIO $ text_disableLabelEffect l LabelEffect_Shadow
-  glow = SetOnlyAttrib set
+  glow = WOAttrib set
     where set l (Just (Glow glColor)) = liftIO $ text_enableGlow l glColor
           set l _ = liftIO $ text_disableLabelEffect l LabelEffect_Glow
 

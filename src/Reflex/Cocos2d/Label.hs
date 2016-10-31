@@ -49,23 +49,23 @@ label_ = void . label
 
 ---- Attrs ----
 -- General Attributes
-instance MonadIO m => HasText Label m where
+instance MonadIO m => HasRWTextAttrib Label m where
   text = hoistA liftIO $ Attrib (decode <=< label_getString) label_setString
   horizontalAlign = hoistA liftIO $ Attrib label_getHorizontalAlignment label_setHorizontalAlignment
   verticalAlign = hoistA liftIO $ Attrib label_getVerticalAlignment label_setVerticalAlignment
   textColor = hoistA liftIO $ Attrib (decode <=< label_getTextColor) label_setTextColor
-  outline = SetOnlyAttrib set
+  outline = WOAttrib set
     where set l (Just (Outline sColor sSize)) = liftIO $ label_enableOutlineWithSize l sColor sSize
           set l _ = liftIO $ label_disableLabelEffect l LabelEffect_Outline
-  shadow = SetOnlyAttrib set
+  shadow = WOAttrib set
     where set l (Just (Shadow shColor shOffset shBlur)) = liftIO $ label_enableShadowWithOffset l shColor shOffset shBlur
           set l _ = liftIO $ label_disableLabelEffect l LabelEffect_Shadow
-  glow = SetOnlyAttrib set
+  glow = WOAttrib set
     where set l (Just (Glow glColor)) = liftIO $ label_enableGlow l glColor
           set l _ = liftIO $ label_disableLabelEffect l LabelEffect_Glow
 
-lineBreakWithoutSpace :: (MonadIO m, LabelPtr l) => SetOnlyAttrib' l m Bool
-lineBreakWithoutSpace = SetOnlyAttrib $ \l -> liftIO . label_setLineBreakWithoutSpace l
+lineBreakWithoutSpace :: (MonadIO m, LabelPtr l) => WOAttrib' l m Bool
+lineBreakWithoutSpace = WOAttrib $ \l -> liftIO . label_setLineBreakWithoutSpace l
 
 maxLineWidth :: (MonadIO m, LabelPtr l) => Attrib' l m Float
 maxLineWidth = hoistA liftIO $ Attrib label_getMaxLineWidth label_setMaxLineWidth

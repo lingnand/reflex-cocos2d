@@ -47,8 +47,8 @@ preloadAudio filename = do
       audioEngine_preloadWithCallback filename $ \success -> run ([tr ==> success], return ())
       return $ pure ()
 
-audioState :: MonadIO m => SetOnlyAttrib' AudioInstance m AudioStateCommand
-audioState = SetOnlyAttrib $ \id cmd -> liftIO $ case cmd of
+audioState :: MonadIO m => WOAttrib' AudioInstance m AudioStateCommand
+audioState = WOAttrib $ \id cmd -> liftIO $ case cmd of
               AudioState_Play -> audioEngine_resume id
               AudioState_Pause -> audioEngine_pause id
               AudioState_Stop -> audioEngine_stop id

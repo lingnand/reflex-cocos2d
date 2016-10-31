@@ -13,7 +13,7 @@ module Reflex.Cocos2d.Chipmunk
 
     , Shape
     , shapeBody
-    , category
+    , shapeCategory
 
     , Body
 
@@ -32,6 +32,8 @@ module Reflex.Cocos2d.Chipmunk
     , collisionEnded
     , getCollisionEvents
 
+    , fanCollisionsByBody
+
     , body
 
     , mass
@@ -48,6 +50,7 @@ module Reflex.Cocos2d.Chipmunk
     , worldToLocal
       -- re-export
     , H.HasShapeDefinition(..)
+    , H.ShapeType(..)
     , ShapeDefinition
     )
   where
@@ -55,6 +58,8 @@ module Reflex.Cocos2d.Chipmunk
 import Data.Word
 import Data.Bits
 import Data.Default
+import Data.Functor.Misc
+import qualified Data.Map as M
 import qualified Data.StateVar as S
 import Data.Dependent.Sum ((==>))
 import Data.StateVar
@@ -98,7 +103,7 @@ instance H.HasShapeDefinition (ShapeDefinition a) Float where
 
 shapeDefinitionRealToFrac :: (Real a, Fractional b) => H.ShapeDefinition a -> H.ShapeDefinition b
 shapeDefinitionRealToFrac (H.ShapeDefinition t os mass ctm cm) =
-    H.ShapeDefinition t (realToFrac <$> os) (realToFrac mass) ctm cm
+    H.ShapeDefinition (realToFrac <$> t) (realToFrac <$> os) (realToFrac mass) ctm cm
 
 instance Default (ShapeDefinition a) where
     def = SDWrap def
@@ -113,8 +118,8 @@ instance H.HasShapeDefinition (Shape a) Float where
 shapeBody :: Getter (Shape a) (Body a)
 shapeBody = to unwrapS . H.shapeBody . to BWrap
 
-category :: (Maskable a, H.HasShapeDefinition (sd a) Float) => Lens' (sd a) a
-category = H.categoryMask . lens fromMask (const toMask)
+shapeCategory :: (Maskable a, H.HasShapeDefinition (sd a) Float) => Lens' (sd a) a
+shapeCategory = H.shapeCategoryMask . lens fromMask (const toMask)
 
 newtype Body a = BWrap H.Body deriving (Eq, Ord)
 
@@ -174,8 +179,8 @@ getCollisionEvents (SPWrap sp) = do
       { H.beginHandler = Just $ do
           (sa, sb) <- H.shapes
           -- check for category
-          if sa^.H.collisionMask .&. sb^.H.categoryMask == 0
-            || sb^.H.collisionMask .&. sa^.H.categoryMask == 0
+          if sa^.H.shapeCollisionMask .&. sb^.H.shapeCategoryMask == 0
+            || sb^.H.shapeCollisionMask .&. sa^.H.shapeCategoryMask == 0
             then return False
             else do
               H.postStep sa $ do
@@ -192,6 +197,14 @@ getCollisionEvents (SPWrap sp) = do
       }
     return $ CollisionEvents eBegin eSeparate
 
+fanCollisionsByBody :: Reflex t => Event t (Shape a, Shape a) -> EventSelector t (Const2 (Body a) (Shape a))
+fanCollisionsByBody = fanMap . fmap trans
+  where trans (sa, sb) = M.fromList
+          [ (s1^.shapeBody, s2)
+          | (s1, s2) <- [(sa, sb), (sb, sa)]
+          ]
+
+
 -- instance below to enable NodeGraph lifting
 body :: MonadIO m
      => Space a
@@ -205,14 +218,14 @@ body wsp@(SPWrap sp) shapes props = do
       -- add shape
       let rawSs = unwrapSD <$> shapes
           moment sh = H.momentForShape
-            (realToFrac $ sh^.H.shapeMass)
+            (sh^.H.shapeMass)
             (sh^.H.shapeType)
-            (realToFrac <$> sh^.H.shapeOffset)
+            (sh^.H.shapeOffset)
           totalMoment = sum $ moment <$> rawSs
-          totalMass = realToFrac $ sumOf (folded.H.shapeMass) rawSs
+          totalMass = sumOf (folded.H.shapeMass) rawSs
       forM_ rawSs $ H.spaceAdd sp <=< H.newShape b . shapeDefinitionRealToFrac
-      H.mass b S.$= totalMass
-      H.moment b S.$= totalMoment
+      H.mass b S.$= realToFrac totalMass
+      H.moment b S.$= realToFrac totalMoment
       return b
     let wrapped = BWrap bd
     setProps (wsp, wrapped) props
@@ -255,11 +268,19 @@ mass = liftStateVarToFloat $ S.mapStateVar realToFrac realToFrac . H.mass . toBo
 moment :: (MonadIO m, BodyPtr b) => Attrib' b m Float
 moment = liftStateVarToFloat (H.moment . toBody)
 
-instance (MonadIO m, BodyPtr b) => HasAngle b m where
+instance MonadIO m => HasRWAngleAttrib (Body a) m where
     angle = liftStateVar $ S.mapStateVar (realToFrac . (^.rad)) ((@@ rad) . realToFrac) . H.angle . toBody
 
-instance (MonadIO m, BodyPtr b) => HasPosition b m where
+instance MonadIO m => HasRWPositionAttrib (Body a) m where
     position = liftStateVarToMappedFloat $ H.position . toBody
+
+instance {-# OVERLAPPING #-} MonadIO m => HasRWAngleAttrib (x, Body a) m where
+    angle = Attrib (getter . snd) (setter . snd)
+      where Attrib getter setter = angle
+
+instance {-# OVERLAPPING #-} MonadIO m => HasRWPositionAttrib (x, Body a) m where
+    position = Attrib (getter . snd) (setter . snd)
+      where Attrib getter setter = position
 
 velocity :: (MonadIO m, BodyPtr b) => Attrib' b m (V2 Float)
 velocity = liftStateVarToMappedFloat $ H.velocity . toBody
@@ -268,8 +289,8 @@ maxVelocity :: (MonadIO m, BodyPtr b) => Attrib' b m Float
 maxVelocity = liftStateVarToFloat $ H.maxVelocity . toBody
 
 -- apply a list of forces to the current body
-force :: (MonadIO m, BodyPtr b) => SetOnlyAttrib' b m [(V2 Float, P2 Float)]
-force = SetOnlyAttrib appForces
+force :: (MonadIO m, BodyPtr b) => WOAttrib' b m [(V2 Float, P2 Float)]
+force = WOAttrib appForces
   where appForces _ [] = return ()
         appForces bp ((f, offset):fs) = liftIO $ do
           let b = toBody bp
@@ -277,8 +298,8 @@ force = SetOnlyAttrib appForces
           forM_ fs $ \(f, offset) -> do
             H.applyForce b (realToFrac <$> f) (realToFrac <$> offset)
 
-impulse :: (MonadIO m, BodyPtr b) => SetOnlyAttrib' b m (V2 Float, P2 Float)
-impulse = SetOnlyAttrib $ \bp (imp, offset) -> liftIO $ do
+impulse :: (MonadIO m, BodyPtr b) => WOAttrib' b m (V2 Float, P2 Float)
+impulse = WOAttrib $ \bp (imp, offset) -> liftIO $ do
             let b = toBody bp
             H.applyImpulse b (realToFrac <$> imp) (realToFrac <$> offset)
 

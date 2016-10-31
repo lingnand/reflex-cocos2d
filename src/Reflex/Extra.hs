@@ -12,10 +12,10 @@ module Reflex.Extra
     )
   where
 
+import Data.Maybe
 import Reflex
 import Control.Monad
 import Control.Monad.Fix
-import Data.Maybe
 import Control.Applicative
 import Control.Lens
 

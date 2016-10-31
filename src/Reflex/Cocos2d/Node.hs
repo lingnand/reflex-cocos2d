@@ -115,7 +115,7 @@ sprite_ = void . sprite
 
 
 ---- Various Attributes ----
-instance (MonadIO m, NodePtr n) => HasPosition n m where
+instance {-# OVERLAPPABLE #-} (MonadIO m, NodePtr n) => HasRWPositionAttrib n m where
   position = hoistA liftIO $ Attrib getPosition setPosition
     where
       getPosition = liftIO . fmap P . (decode <=< node_getPosition)
@@ -124,7 +124,7 @@ instance (MonadIO m, NodePtr n) => HasPosition n m where
   positionY = hoistA liftIO $ Attrib node_getPositionY node_setPositionY
 
 -- | cocos2d uses clockwise degree - we convert it to anticlockwise angle
-instance (MonadIO m, NodePtr n) => HasAngle n m where
+instance {-# OVERLAPPABLE #-} (MonadIO m, NodePtr n) => HasRWAngleAttrib n m where
   angle = hoistA liftIO $ Attrib getter setter
     where
       fromCC = (@@ deg) . negate
@@ -233,20 +233,20 @@ height = hoistA liftIO $ Attrib getter setter
       w <- size_width_get =<< node_getContentSize n
       node_setContentSize n (V2 w h)
 
-texture :: (MonadIO m, SpritePtr n) => SetOnlyAttrib' n m Texture2D
-texture = SetOnlyAttrib $ \sp -> liftIO . sprite_setTexture sp
+texture :: (MonadIO m, SpritePtr n) => WOAttrib' n m Texture2D
+texture = WOAttrib $ \sp -> liftIO . sprite_setTexture sp
 
 -- | Currently modelled as non-stoppable action that gets run when set
--- action :: (MonadIO m, NodePtr n) => SetOnlyAttrib' n m Action
--- action = SetOnlyAttrib' runAction
+-- action :: (MonadIO m, NodePtr n) => WOAttrib' n m Action
+-- action = WOAttrib' runAction
 -- | Set SpriteFrame by name.
 -- NOTE: the SpriteFrame has to be already inside the SpriteFrameCache
--- spriteName :: (MonadIO m, SpritePtr n) => SetOnlyAttrib' n m String
--- spriteName = SetOnlyAttrib' $ \sp -> liftIO . sprite_setSpriteFrameWithName sp
+-- spriteName :: (MonadIO m, SpritePtr n) => WOAttrib' n m String
+-- spriteName = WOAttrib' $ \sp -> liftIO . sprite_setSpriteFrameWithName sp
 -- | Set texture by its filename
 -- NOTE: this automatically adds the texture to the texture cache if it's not already there
-textureFilename :: (MonadIO m, SpritePtr n) => SetOnlyAttrib' n m String
-textureFilename = SetOnlyAttrib $ \sp name -> liftIO $ case name of
+textureFilename :: (MonadIO m, SpritePtr n) => WOAttrib' n m String
+textureFilename = WOAttrib $ \sp name -> liftIO $ case name of
                     [] -> sprite_setTexture sp (nullptr :: Texture2D) -- reset sprite to blank
                     _ -> sprite_setTextureWithFilename sp name
 

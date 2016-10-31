@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
@@ -9,8 +10,10 @@
 module Reflex.Cocos2d.Attributes
     ( Attrib(..)
     , Attrib'
-    , SetOnlyAttrib(..)
-    , SetOnlyAttrib'
+    , ROAttrib(..)
+    , ROAttrib'
+    , WOAttrib(..)
+    , WOAttrib'
     , Prop(..)
     , get
     , setProps
@@ -25,9 +28,11 @@ module Reflex.Cocos2d.Attributes
     , choose
     , chosen
     -- attrs --
-    , HasPosition(..)
-    , HasAngle(..)
-    , HasText(..)
+    , HasROPositionAttrib(..)
+    , HasRWPositionAttrib(..)
+    , HasROAngleAttrib(..)
+    , HasRWAngleAttrib(..)
+    , HasRWTextAttrib(..)
     , positionFrom
     , angleFrom
     , transformFrom
@@ -72,17 +77,23 @@ instance Contravariant (Attrib w m b) where
     contramap f (Attrib g s) = Attrib g s'
       where s' w = s w . f
 
-data SetOnlyAttrib w m b a = SetOnlyAttrib (w -> a -> m ())
+data ROAttrib w m b a = ROAttrib (w -> m a)
+type ROAttrib' w m a = forall b. ROAttrib w m b a
+
+instance IsGettable w m a (ROAttrib w m b a) where
+    getter (ROAttrib s) = s
+
+data WOAttrib w m b a = WOAttrib (w -> a -> m ())
 
 -- NOTE: the phantom type 'b' is needed because we need the type structure to conform with that of Attrib
 -- maybe there is a better way...
-type SetOnlyAttrib' w m a = forall b. SetOnlyAttrib w m b a
+type WOAttrib' w m a = forall b. WOAttrib w m b a
 
-instance IsSettable w m a (SetOnlyAttrib w m b a) where
-    setter (SetOnlyAttrib s) = s
+instance IsSettable w m a (WOAttrib w m b a) where
+    setter (WOAttrib s) = s
 
-instance Contravariant (SetOnlyAttrib w m b) where
-    contramap f s = SetOnlyAttrib $ \w -> setter s w . f
+instance Contravariant (WOAttrib w m b) where
+    contramap f s = WOAttrib $ \w -> setter s w . f
 
 get :: IsGettable n m a attr => n -> attr -> m a
 get = flip getter
@@ -96,13 +107,13 @@ hoistA trans (Attrib getter setter) = Attrib (trans . getter) (\w -> trans . set
 
 ---- combinators ----
 
--- | Transforms a IsSettable attribute to a SetOnlyAttribute. This uses lazy read on the incoming Dynamic
+-- | Transforms a IsSettable attribute to a WOAttribute. This uses lazy read on the incoming Dynamic
 dyn :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a))
-    => attr w (HostFrame t) b a -> SetOnlyAttrib' w m (Dynamic t a)
-dyn attr = SetOnlyAttrib $ \w d -> do
+    => attr w (HostFrame t) b a -> WOAttrib' w m (Dynamic t a)
+dyn attr = WOAttrib $ \w d -> do
             e <- view postBuildEvent
             runEvent_ $ (setter attr w =<< sample (current d)) <$ e
-            let SetOnlyAttrib es = evt attr
+            let WOAttrib es = evt attr
             es w (updated d)
 
 -- | Similar to `dyn`, but applies strict read
@@ -111,14 +122,14 @@ dyn' :: ( NodeGraph t m
         , IsSettable w (HostFrame t) a (attr w (HostFrame t) b a)
         , IsSettable w m a (attr w m b a) )
      => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
-     -> SetOnlyAttrib' w m (Dynamic t a)
-dyn' attr = SetOnlyAttrib $ \w d -> do
+     -> WOAttrib' w m (Dynamic t a)
+dyn' attr = WOAttrib $ \w d -> do
               setter attr w =<< sample (current d)
-              let SetOnlyAttrib es = evt attr
+              let WOAttrib es = evt attr
               es w (updated d)
 
 uDyn :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a), Eq a)
-     => attr w (HostFrame t) b a -> SetOnlyAttrib' w m (UniqDynamic t a)
+     => attr w (HostFrame t) b a -> WOAttrib' w m (UniqDynamic t a)
 uDyn = (fromUniqDynamic >$<) . dyn
 
 uDyn' :: ( NodeGraph t m
@@ -126,35 +137,38 @@ uDyn' :: ( NodeGraph t m
          , IsSettable w m a (attr w m b a)
          , Eq a )
       => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
-      -> SetOnlyAttrib' w m (UniqDynamic t a)
+      -> WOAttrib' w m (UniqDynamic t a)
 uDyn' attr = fromUniqDynamic >$< dyn' attr
 
 evt :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a))
-    => attr w (HostFrame t) b a -> SetOnlyAttrib' w m (Event t a)
-evt attr = SetOnlyAttrib $ \w e -> onEvent_ e $ setter attr w
+    => attr w (HostFrame t) b a -> WOAttrib' w m (Event t a)
+evt attr = WOAttrib $ \w e -> onEvent_ e $ setter attr w
 
 -- degenerative combinators following Contravariant.Divisible
 divide :: (Monad m, IsSettable w m b attrb, IsSettable w m c attrc)
-       => (a -> (b, c)) -> attrb -> attrc -> SetOnlyAttrib' w m a
-divide f attrb attrc = SetOnlyAttrib $ \w a -> let (b, c) = f a in setter attrb w b >> setter attrc w c
+       => (a -> (b, c)) -> attrb -> attrc -> WOAttrib' w m a
+divide f attrb attrc = WOAttrib $ \w a -> let (b, c) = f a in setter attrb w b >> setter attrc w c
 
 divided :: (Monad m, IsSettable w m b attrb, IsSettable w m c attrc)
-        => attrb -> attrc -> SetOnlyAttrib' w m (b, c)
+        => attrb -> attrc -> WOAttrib' w m (b, c)
 divided = divide id
 
 choose :: (IsSettable w m b attrb, IsSettable w m c attrc)
-       => (a -> Either b c) -> attrb -> attrc -> SetOnlyAttrib' w m a
-choose f attrb attrc = SetOnlyAttrib $ \w a -> case f a of
+       => (a -> Either b c) -> attrb -> attrc -> WOAttrib' w m a
+choose f attrb attrc = WOAttrib $ \w a -> case f a of
                                                   Left b -> setter attrb w b
                                                   Right c -> setter attrc w c
 
 chosen :: (IsSettable w m b attrb, IsSettable w m c attrc)
-       => attrb -> attrc -> SetOnlyAttrib' w m (Either b c)
+       => attrb -> attrc -> WOAttrib' w m (Either b c)
 chosen = choose id
 
 ---- General Attribs ----
 
-class Monad m => HasPosition w m where
+class Monad m => HasROPositionAttrib w m where
+  roPosition :: ROAttrib' w m (P2 Float)
+
+class Monad m => HasRWPositionAttrib w m where
   position :: Attrib' w m (P2 Float)
   position = Attrib (\w -> (^&) <$> gx w <*> gy w)
                      (\w p -> let P (V2 x y) = p in sx w x >> sy w y)
@@ -171,28 +185,37 @@ class Monad m => HasPosition w m where
           getter' w = (^._y) <$> getter w
           setter' w y = getter w >>= setter w . (_y .~ y)
 
-class Monad m => HasAngle w m where
+instance {-# OVERLAPPABLE #-} (Monad m, HasRWPositionAttrib w m) => HasROPositionAttrib w m where
+    roPosition = ROAttrib $ getter position
+
+class Monad m => HasROAngleAttrib w m where
+  roAngle :: ROAttrib' w m (Angle Float)
+
+class Monad m => HasRWAngleAttrib w m where
   angle :: Attrib' w m (Angle Float)
 
+instance {-# OVERLAPPABLE #-} (Monad m, HasRWAngleAttrib w m) => HasROAngleAttrib w m where
+    roAngle = ROAttrib $ getter angle
+
 -- text related general attributes
-class Monad m => HasText w m where
+class Monad m => HasRWTextAttrib w m where
   text :: Attrib' w m String
   horizontalAlign :: Attrib' w m TextHAlignment
   verticalAlign :: Attrib' w m TextVAlignment
   textColor :: Attrib' w m (AlphaColour Float)
-  outline :: SetOnlyAttrib' w m (Maybe Outline)
-  shadow :: SetOnlyAttrib' w m (Maybe Shadow)
-  glow :: SetOnlyAttrib' w m (Maybe Glow)
+  outline :: WOAttrib' w m (Maybe Outline)
+  shadow :: WOAttrib' w m (Maybe Shadow)
+  glow :: WOAttrib' w m (Maybe Glow)
 
 -- take position from a given widget that has position
-positionFrom :: (HasPosition a m, HasPosition w m) => SetOnlyAttrib' w m a
-positionFrom = SetOnlyAttrib $ \w a -> get a position >>= setter position w
+positionFrom :: (HasROPositionAttrib a m, HasRWPositionAttrib w m) => WOAttrib' w m a
+positionFrom = WOAttrib $ \w a -> get a roPosition >>= setter position w
 
-angleFrom :: (HasAngle a m, HasAngle w m) => SetOnlyAttrib' w m a
-angleFrom = SetOnlyAttrib $ \w a -> get a angle >>= setter angle w
+angleFrom :: (HasROAngleAttrib a m, HasRWAngleAttrib w m) => WOAttrib' w m a
+angleFrom = WOAttrib $ \w a -> get a roAngle >>= setter angle w
 
-transformFrom :: (HasAngle a m, HasPosition a m, HasAngle w m, HasPosition w m)
-              => SetOnlyAttrib' w m a
-transformFrom = SetOnlyAttrib $ \w a -> fp w a >> fa w a
-  where SetOnlyAttrib fp = positionFrom
-        SetOnlyAttrib fa = angleFrom
+transformFrom :: ( HasROAngleAttrib a m, HasROPositionAttrib a m
+                 , HasRWAngleAttrib w m, HasRWPositionAttrib w m )
+              => WOAttrib' w m a
+transformFrom = WOAttrib $ \w a -> setter positionFrom w a >> setter angleFrom w a
+
