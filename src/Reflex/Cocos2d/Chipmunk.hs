@@ -1,3 +1,6 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -12,8 +15,16 @@ module Reflex.Cocos2d.Chipmunk
     , Space
 
     , Shape
+    , ShapeAttributes
     , shapeBody
+    -- these are actually modifiable attributes...
+    -- , shapeGeometry
+    -- , shapeOffset
+    -- , shapeMass
+    ----------------------
     , shapeCategory
+    , shapeCategoryMask
+    , shapeCollisionMask
 
     , Body
 
@@ -36,8 +47,6 @@ module Reflex.Cocos2d.Chipmunk
 
     , body
 
-    , mass
-    , moment
     , velocity
     , maxVelocity
     , force
@@ -46,18 +55,29 @@ module Reflex.Cocos2d.Chipmunk
     , torque
     , active
 
+    , shape
+
+    , shapeAttributes
+    , mass
+    , offset
+    , geometry
+    , categoryMask
+    , category
+    , collisionMask
+    , group
+    , elasticity
+    , friction
+    , surfaceVel
+
     , localToWorld
     , worldToLocal
       -- re-export
-    , H.HasShapeDefinition(..)
-    , H.ShapeType(..)
-    , ShapeDefinition
+    , H.Geometry(..)
     )
   where
 
 import Data.Word
 import Data.Bits
-import Data.Default
 import Data.Functor.Misc
 import qualified Data.Map as M
 import qualified Data.StateVar as S
@@ -96,49 +116,72 @@ newtype Space a = SPWrap H.Space deriving (Eq, Ord)
 --     , _contactPoints :: [V2 Double] -- TODO: do we need this?
 --     }
 
-newtype ShapeDefinition a = SDWrap { unwrapSD :: H.ShapeDefinition Float } deriving (Eq, Ord, Show)
+newtype ShapeAttributes a = SAWrap { unwrapSA :: H.ShapeAttributes Float } deriving (Eq, Ord)
 
-instance H.HasShapeDefinition (ShapeDefinition a) Float where
-    shapeDefinition = lens unwrapSD (const SDWrap) . H.shapeDefinition
+toSA :: Real a => H.ShapeAttributes a -> ShapeAttributes x
+toSA (H.ShapeAttributes bd t os mass ctm cm) = SAWrap $
+    H.ShapeAttributes bd (realToFrac <$> t) (realToFrac <$> os) (realToFrac mass) ctm cm
 
-shapeDefinitionRealToFrac :: (Real a, Fractional b) => H.ShapeDefinition a -> H.ShapeDefinition b
-shapeDefinitionRealToFrac (H.ShapeDefinition t os mass ctm cm) =
-    H.ShapeDefinition (realToFrac <$> t) (realToFrac <$> os) (realToFrac mass) ctm cm
+newtype Shape a = SWrap { unwrapS :: H.Shape } deriving (Eq, Ord, H.Entity)
 
-instance Default (ShapeDefinition a) where
-    def = SDWrap def
+wrappedSA :: Lens' (ShapeAttributes a) (H.ShapeAttributes Float)
+wrappedSA = lens unwrapSA (const SAWrap)
 
-newtype Shape a = SWrap { unwrapS :: H.Shape } deriving (Eq, Ord)
+shapeBody :: Getter (ShapeAttributes a) (Body a)
+shapeBody = wrappedSA . H.shapeBody . to BWrap
 
--- force Float ShapeDefinition
-instance H.HasShapeDefinition (Shape a) Float where
-    shapeDefinition = lens unwrapS (const SWrap) . H.shapeDefinition
-                    . lens shapeDefinitionRealToFrac (const shapeDefinitionRealToFrac)
+-- shapeGeometry :: Lens' (ShapeAttributes a) (H.Geometry Float)
+-- shapeGeometry = wrappedSA . H.shapeGeometry
+--
+-- shapeOffset :: Lens' (ShapeAttributes a) (P2 Float)
+-- shapeOffset = wrappedSA . H.shapeOffset
+--
+-- shapeMass :: Lens' (ShapeAttributes a) Float
+-- shapeMass = wrappedSA . H.shapeMass
 
-shapeBody :: Getter (Shape a) (Body a)
-shapeBody = to unwrapS . H.shapeBody . to BWrap
+shapeCategoryMask :: Lens' (ShapeAttributes a) Word64
+shapeCategoryMask = wrappedSA . H.shapeCategoryMask
 
-shapeCategory :: (Maskable a, H.HasShapeDefinition (sd a) Float) => Lens' (sd a) a
-shapeCategory = H.shapeCategoryMask . lens fromMask (const toMask)
+shapeCategory :: Maskable a => Lens' (ShapeAttributes a) a
+shapeCategory = shapeCategoryMask . lens fromMask (const toMask)
 
-newtype Body a = BWrap H.Body deriving (Eq, Ord)
+shapeCollisionMask :: Lens' (ShapeAttributes a) Word64
+shapeCollisionMask = wrappedSA . H.shapeCollisionMask
 
-class BodyPtr a where
-    toBody :: a -> H.Body
 
-class SpacePtr a where
-    toSpace :: a -> H.Space
+newtype Body a = BWrap H.Body deriving (Eq, Ord, H.Entity)
 
-instance BodyPtr (Body a) where
+class BodyPtr a e | e -> a where
+    toBody :: e -> H.Body
+
+class SpacePtr a e | e -> a where
+    toSpace :: e -> H.Space
+
+class ShapePtr a e | e -> a where
+    toShape :: e -> H.Shape
+
+instance BodyPtr a (Body a) where
     toBody (BWrap b) = b
 
-instance BodyPtr b => BodyPtr (a, b) where
+instance BodyPtr a b => BodyPtr a (x, b) where
     toBody (_, b) = toBody b
 
-instance SpacePtr (Space a) where
+instance ShapePtr a (Shape a) where
+    toShape (SWrap s) = s
+
+instance ShapePtr a b => ShapePtr a (x, b) where
+    toShape (_, s) = toShape s
+
+instance H.Entity e => H.Entity (x, e) where
+    spaceAdd sp (_, e) = H.spaceAdd sp e
+    spaceRemove sp (_, e) = H.spaceRemove sp e
+    entityPtr (_, e) = H.entityPtr e
+    inSpace (_, e) = H.inSpace e
+
+instance SpacePtr a (Space a) where
     toSpace (SPWrap s) = s
 
-instance SpacePtr s => SpacePtr (s, a) where
+instance SpacePtr a s => SpacePtr a (s, x) where
     toSpace (s, _) = toSpace s
 
 type SpaceStep = Time
@@ -155,16 +198,16 @@ space props = do
       return dt
 
 data CollisionEvents t a = CollisionEvents
-    { _collisionBegan :: Event t (Shape a, Shape a)
-    , _collisionEnded :: Event t (Shape a, Shape a)
+    { _collisionBegan :: Event t (ShapeAttributes a, ShapeAttributes a)
+    , _collisionEnded :: Event t (ShapeAttributes a, ShapeAttributes a)
     }
 
-collisionBegan :: Lens' (CollisionEvents t a) (Event t (Shape a, Shape a))
+collisionBegan :: Lens' (CollisionEvents t a) (Event t (ShapeAttributes a, ShapeAttributes a))
 collisionBegan f (CollisionEvents began ended)
   = fmap
       (\ began' -> CollisionEvents began' ended) (f began)
 {-# INLINE collisionBegan #-}
-collisionEnded :: Lens' (CollisionEvents t a) (Event t (Shape a, Shape a))
+collisionEnded :: Lens' (CollisionEvents t a) (Event t (ShapeAttributes a, ShapeAttributes a))
 collisionEnded f (CollisionEvents began ended)
   = fmap
       (\ ended' -> CollisionEvents began ended') (f ended)
@@ -179,25 +222,29 @@ getCollisionEvents (SPWrap sp) = do
       { H.beginHandler = Just $ do
           (sa, sb) <- H.shapes
           -- check for category
-          if sa^.H.shapeCollisionMask .&. sb^.H.shapeCategoryMask == 0
-            || sb^.H.shapeCollisionMask .&. sa^.H.shapeCategoryMask == 0
+          saa <- S.get (H.shapeAttributes sa)
+          sab <- S.get (H.shapeAttributes sb)
+          if saa^.H.shapeCollisionMask .&. sab^.H.shapeCategoryMask == 0
+            || sab^.H.shapeCollisionMask .&. saa^.H.shapeCategoryMask == 0
             then return False
             else do
               H.postStep sa $ do
                 liftIO $ readRef trBegin
-                  >>= mapM_ (\tr -> run ([tr ==> (SWrap sa, SWrap sb)], return ()))
+                  >>= mapM_ (\tr -> run ([tr ==> (toSA saa, toSA sab)], return ()))
               return True
       , H.preSolveHandler = Nothing
       , H.postSolveHandler = Nothing
       , H.separateHandler = Just $ do
           (sa, sb) <- H.shapes
+          saa <- S.get (H.shapeAttributes sa)
+          sab <- S.get (H.shapeAttributes sb)
           H.postStep sa $ do
             liftIO $ readRef trSeparate
-              >>= mapM_ (\tr -> run ([tr ==> (SWrap sa, SWrap sb)], return ()))
+              >>= mapM_ (\tr -> run ([tr ==> (toSA saa, toSA sab)], return ()))
       }
     return $ CollisionEvents eBegin eSeparate
 
-fanCollisionsByBody :: Reflex t => Event t (Shape a, Shape a) -> EventSelector t (Const2 (Body a) (Shape a))
+fanCollisionsByBody :: Reflex t => Event t (ShapeAttributes a, ShapeAttributes a) -> EventSelector t (Const2 (Body a) (ShapeAttributes a))
 fanCollisionsByBody = fanMap . fmap trans
   where trans (sa, sb) = M.fromList
           [ (s1^.shapeBody, s2)
@@ -205,31 +252,36 @@ fanCollisionsByBody = fanMap . fmap trans
           ]
 
 
--- instance below to enable NodeGraph lifting
+-- | NOTE: to add the body to the space, you have to pass in the active := true prop
 body :: MonadIO m
      => Space a
-     -> [ShapeDefinition a]
      -> [Prop (Space a, Body a) m]
      -> m (Body a)
-body wsp@(SPWrap sp) shapes props = do
-    bd <- liftIO $ do
-      -- XXX: use 1 1 to bypass checks to create a body
-      b <- H.newBody 1 1
-      -- add shape
-      let rawSs = unwrapSD <$> shapes
-          moment sh = H.momentForShape
-            (sh^.H.shapeMass)
-            (sh^.H.shapeType)
-            (sh^.H.shapeOffset)
-          totalMoment = sum $ moment <$> rawSs
-          totalMass = sumOf (folded.H.shapeMass) rawSs
-      forM_ rawSs $ H.spaceAdd sp <=< H.newShape b . shapeDefinitionRealToFrac
-      H.mass b S.$= realToFrac totalMass
-      H.moment b S.$= realToFrac totalMoment
-      return b
+body wsp props = do
+    bd <- liftIO $ H.newBody (1/0) (1/0)
     let wrapped = BWrap bd
     setProps (wsp, wrapped) props
     return wrapped
+
+-- | NOTE: to add the shape to the space, you have to pass in the active := true prop
+shape :: MonadIO m
+      => Space a
+      -> Body a
+      -> H.Geometry Float
+      -> [Prop (Space a, Shape a) m]
+      -> m ()
+shape wsp@(SPWrap sp) (BWrap b) geo props = do
+    sh <- liftIO . H.newShape $ H.ShapeAttributes
+            b                    -- body
+            (realToFrac <$> geo) -- geo
+            0                    -- offset
+            (0/1)                -- mass
+            0                    -- categoryMask
+            maxBound             -- collisionMask
+    liftIO $ H.recomputeTotalMassAndMoment sp b
+    let wrapped = SWrap sh
+    setProps (wsp, wrapped) props
+
 
 liftStateVar :: MonadIO m => (b -> StateVar a) -> Attrib' b m a
 liftStateVar f = Attrib (S.get . f) ((S.$=) . f)
@@ -245,28 +297,22 @@ liftStateVarToMappedFloat = liftStateVar . (S.mapStateVar (fmap realToFrac) (fma
 
 -- attributes for space
 
-iterations :: (MonadIO m, SpacePtr s) => Attrib' s m Int
+iterations :: (MonadIO m, SpacePtr a s) => Attrib' s m Int
 iterations = liftStateVar $ S.mapStateVar fromIntegral fromIntegral . H.iterations . toSpace
 
-gravity :: (MonadIO m, SpacePtr s) => Attrib' s m (V2 Float)
+gravity :: (MonadIO m, SpacePtr a s) => Attrib' s m (V2 Float)
 gravity = liftStateVarToMappedFloat $ H.gravity . toSpace
 
-damping :: (MonadIO m, SpacePtr s) => Attrib' s m Float
+damping :: (MonadIO m, SpacePtr a s) => Attrib' s m Float
 damping = liftStateVarToFloat $ H.damping . toSpace
 
-collisionSlop :: (MonadIO m, SpacePtr s) => Attrib' s m Float
+collisionSlop :: (MonadIO m, SpacePtr a s) => Attrib' s m Float
 collisionSlop = liftStateVarToFloat $ H.collisionSlop . toSpace
 
-collisionBias :: (MonadIO m, SpacePtr s) => Attrib' s m Float
+collisionBias :: (MonadIO m, SpacePtr a s) => Attrib' s m Float
 collisionBias = liftStateVarToFloat $ H.collisionBias . toSpace
+
 -- attributes for bodies
-
--- we use Float for everything here...
-mass :: (MonadIO m, BodyPtr b) => Attrib' b m Float
-mass = liftStateVarToFloat $ S.mapStateVar realToFrac realToFrac . H.mass . toBody
-
-moment :: (MonadIO m, BodyPtr b) => Attrib' b m Float
-moment = liftStateVarToFloat (H.moment . toBody)
 
 instance MonadIO m => HasRWAngleAttrib (Body a) m where
     angle = liftStateVar $ S.mapStateVar (realToFrac . (^.rad)) ((@@ rad) . realToFrac) . H.angle . toBody
@@ -282,14 +328,14 @@ instance {-# OVERLAPPING #-} MonadIO m => HasRWPositionAttrib (x, Body a) m wher
     position = Attrib (getter . snd) (setter . snd)
       where Attrib getter setter = position
 
-velocity :: (MonadIO m, BodyPtr b) => Attrib' b m (V2 Float)
+velocity :: (MonadIO m, BodyPtr a b) => Attrib' b m (V2 Float)
 velocity = liftStateVarToMappedFloat $ H.velocity . toBody
 
-maxVelocity :: (MonadIO m, BodyPtr b) => Attrib' b m Float
+maxVelocity :: (MonadIO m, BodyPtr a b) => Attrib' b m Float
 maxVelocity = liftStateVarToFloat $ H.maxVelocity . toBody
 
 -- apply a list of forces to the current body
-force :: (MonadIO m, BodyPtr b) => WOAttrib' b m [(V2 Float, P2 Float)]
+force :: (MonadIO m, BodyPtr a b) => WOAttrib' b m [(V2 Float, P2 Float)]
 force = WOAttrib appForces
   where appForces _ [] = return ()
         appForces bp ((f, offset):fs) = liftIO $ do
@@ -298,31 +344,83 @@ force = WOAttrib appForces
           forM_ fs $ \(f, offset) -> do
             H.applyForce b (realToFrac <$> f) (realToFrac <$> offset)
 
-impulse :: (MonadIO m, BodyPtr b) => WOAttrib' b m (V2 Float, P2 Float)
+impulse :: (MonadIO m, BodyPtr a b) => WOAttrib' b m (V2 Float, P2 Float)
 impulse = WOAttrib $ \bp (imp, offset) -> liftIO $ do
             let b = toBody bp
             H.applyImpulse b (realToFrac <$> imp) (realToFrac <$> offset)
 
-maxAngVel :: (MonadIO m, BodyPtr b) => Attrib' b m Float
+maxAngVel :: (MonadIO m, BodyPtr a b) => Attrib' b m Float
 maxAngVel = liftStateVarToFloat $ H.maxAngVel . toBody
 
-torque :: (MonadIO m, BodyPtr b) => Attrib' b m Float
+torque :: (MonadIO m, BodyPtr a b) => Attrib' b m Float
 torque = liftStateVarToFloat $ H.torque . toBody
 
 -- whether the body is added to the space
-active :: (MonadIO m, BodyPtr a, SpacePtr a) => Attrib' a m Bool
+active :: (MonadIO m, H.Entity e, SpacePtr a e) => Attrib' e m Bool
 active = Attrib getter setter
   where setter p act =
-          let b = toBody p
-              sp = toSpace p
+          let sp = toSpace p
           in case act of
-            True -> liftIO $ H.inSpace b >>= \case
+            True -> liftIO $ H.inSpace p >>= \case
                 True -> return ()
-                _ -> H.spaceAdd sp b
-            False -> liftIO $ H.inSpace b >>= \case
-                True -> H.spaceRemove sp b
+                _ -> H.spaceAdd sp p
+            False -> liftIO $ H.inSpace p >>= \case
+                True -> H.spaceRemove sp p
                 _ -> return ()
-        getter = liftIO . H.inSpace . toBody
+        getter = liftIO . H.inSpace
+
+-- attributes for shapes
+
+shapeAttributes :: (MonadIO m, ShapePtr a s) => ROAttrib' s m (ShapeAttributes a)
+shapeAttributes = ROAttrib $ fmap toSA . S.get . H.shapeAttributes . toShape
+
+mass :: (MonadIO m, ShapePtr a e, SpacePtr a e) => Attrib' e m Float
+mass = Attrib getter setter
+  where getter = fmap realToFrac . S.get . H.mass . toShape
+        setter w v = liftIO $ do
+          let sh = toShape w
+          H.mass sh S.$= realToFrac v
+          bd <- view H.shapeBody <$> S.get (H.shapeAttributes sh)
+          H.recomputeTotalMassAndMoment (toSpace w) bd
+
+offset :: (MonadIO m, ShapePtr a e, SpacePtr a e) => Attrib' e m (P2 Float)
+offset = Attrib getter setter
+  where getter = fmap (realToFrac <$>) . S.get . H.offset . toShape
+        setter w v = liftIO $ do
+          let sh = toShape w
+          H.offset sh S.$= realToFrac <$> v
+          bd <- view H.shapeBody <$> S.get (H.shapeAttributes sh)
+          H.recomputeTotalMassAndMoment (toSpace w) bd
+
+geometry :: (MonadIO m, ShapePtr a e, SpacePtr a e) => Attrib' e m (H.Geometry Float)
+geometry = Attrib getter setter
+  where getter = fmap (realToFrac <$>) . S.get . H.geometry . toShape
+        setter w v = liftIO $ do
+          let sh = toShape w
+          H.geometry sh S.$= realToFrac <$> v
+          bd <- view H.shapeBody <$> S.get (H.shapeAttributes sh)
+          H.recomputeTotalMassAndMoment (toSpace w) bd
+
+categoryMask :: (MonadIO m, ShapePtr a s) => Attrib' s m Word64
+categoryMask = liftStateVar $ H.categoryMask . toShape
+
+category :: (Maskable a, MonadIO m, ShapePtr a s) => Attrib' s m a
+category = mapAttrib fromMask toMask categoryMask
+
+collisionMask :: (MonadIO m, ShapePtr a s) => Attrib' s m Word64
+collisionMask = liftStateVar $ H.collisionMask . toShape
+
+group :: (MonadIO m, ShapePtr a s) => Attrib' s m Word64
+group = liftStateVar $ H.group . toShape
+
+elasticity :: (MonadIO m, ShapePtr a s) => Attrib' s m Float
+elasticity = liftStateVarToFloat $ H.elasticity . toShape
+
+friction :: (MonadIO m, ShapePtr a s) => Attrib' s m Float
+friction = liftStateVarToFloat $ H.friction . toShape
+
+surfaceVel :: (MonadIO m, ShapePtr a s) => Attrib' s m (V2 Float)
+surfaceVel = liftStateVarToMappedFloat $ H.surfaceVel . toShape
 
 localToWorld :: MonadIO m => Body a -> P2 Float -> m (P2 Float)
 localToWorld (BWrap b) p = liftIO $ fmap realToFrac <$> H.localToWorld b (realToFrac <$> p)

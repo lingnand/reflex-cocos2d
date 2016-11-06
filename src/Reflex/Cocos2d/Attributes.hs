@@ -15,6 +15,7 @@ module Reflex.Cocos2d.Attributes
     , WOAttrib(..)
     , WOAttrib'
     , Prop(..)
+    , mapAttrib
     , get
     , setProps
     , hoistA
@@ -76,6 +77,9 @@ instance IsGettable w m b (Attrib w m b a) where
 instance Contravariant (Attrib w m b) where
     contramap f (Attrib g s) = Attrib g s'
       where s' w = s w . f
+
+mapAttrib :: Functor m => (b -> d) -> (c -> a) -> Attrib w m b a -> Attrib w m d c
+mapAttrib fg fs (Attrib g s) = Attrib (fmap fg . g) (\w -> s w . fs)
 
 data ROAttrib w m b a = ROAttrib (w -> m a)
 type ROAttrib' w m a = forall b. ROAttrib w m b a
@@ -185,14 +189,14 @@ class Monad m => HasRWPositionAttrib w m where
           getter' w = (^._y) <$> getter w
           setter' w y = getter w >>= setter w . (_y .~ y)
 
-instance {-# OVERLAPPABLE #-} (Monad m, HasRWPositionAttrib w m) => HasROPositionAttrib w m where
-    roPosition = ROAttrib $ getter position
-
 class Monad m => HasROAngleAttrib w m where
   roAngle :: ROAttrib' w m (Angle Float)
 
 class Monad m => HasRWAngleAttrib w m where
   angle :: Attrib' w m (Angle Float)
+
+instance {-# OVERLAPPABLE #-} (Monad m, HasRWPositionAttrib w m) => HasROPositionAttrib w m where
+    roPosition = ROAttrib $ getter position
 
 instance {-# OVERLAPPABLE #-} (Monad m, HasRWAngleAttrib w m) => HasROAngleAttrib w m where
     roAngle = ROAttrib $ getter angle
