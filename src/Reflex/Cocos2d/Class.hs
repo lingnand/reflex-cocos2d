@@ -33,8 +33,10 @@ module Reflex.Cocos2d.Class
     , buildGreedyFreeT
     , waitEvent
     , waitEvent'
+    , waitEvent_
     , waitDynMaybe
     , waitDynMaybe'
+    , waitDynMaybe_
     -- * Time
     , modulate
     -- * Rand
@@ -276,6 +278,9 @@ waitEvent = liftF
 waitEvent' :: (Reflex t, Monad m) => Event t a -> FreeT (Event t) m (a, Event t a)
 waitEvent' e = (,e) <$> liftF e
 
+waitEvent_ :: (Reflex t, Monad m) => Event t a -> FreeT (Event t) m ()
+waitEvent_ = void . waitEvent
+
 -- | Wait for the Dynamic to turn from Nothing to Just
 waitDynMaybe :: (Reflex t, MonadSample t m) => Dynamic t (Maybe a) -> FreeT (Event t) m a
 waitDynMaybe dyn = lift (sample $ current dyn) >>= \case
@@ -286,6 +291,8 @@ waitDynMaybe dyn = lift (sample $ current dyn) >>= \case
 waitDynMaybe' :: (Reflex t, MonadSample t m) => Dynamic t (Maybe a) -> FreeT (Event t) m (a, Event t a)
 waitDynMaybe' dyn = (,fmapMaybe id $ updated dyn) <$> waitDynMaybe dyn
 
+waitDynMaybe_ :: (Reflex t, MonadSample t m) => Dynamic t (Maybe a) -> FreeT (Event t) m ()
+waitDynMaybe_ = void . waitDynMaybe
 
 previewPure :: FreeF f a b -> Maybe a
 previewPure (Pure a) = Just a

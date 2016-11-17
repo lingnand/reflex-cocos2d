@@ -122,22 +122,27 @@ toSA :: Real a => H.ShapeAttributes a -> ShapeAttributes x
 toSA (H.ShapeAttributes bd t os mass ctm cm) = SAWrap $
     H.ShapeAttributes bd (realToFrac <$> t) (realToFrac <$> os) (realToFrac mass) ctm cm
 
-newtype Shape a = SWrap { unwrapS :: H.Shape } deriving (Eq, Ord, H.Entity)
+newtype Shape a = SWrap { unwrapS :: H.Shape } deriving (Eq, Ord)
+
+-- override Entity instance to have automatic mass/moment recomputation
+instance H.Entity (Shape a) where
+    spaceAdd sp (SWrap s) = do
+      H.spaceAdd sp s
+      bd <- view H.shapeBody <$> S.get (H.shapeAttributes s)
+      H.recomputeTotalMassAndMoment sp bd
+    spaceRemove sp (SWrap s) = do
+      H.spaceRemove sp s
+      bd <- view H.shapeBody <$> S.get (H.shapeAttributes s)
+      H.recomputeTotalMassAndMoment sp bd
+    entityPtr = H.entityPtr . unwrapS
+    inSpace   = H.inSpace . unwrapS
+
 
 wrappedSA :: Lens' (ShapeAttributes a) (H.ShapeAttributes Float)
 wrappedSA = lens unwrapSA (const SAWrap)
 
 shapeBody :: Getter (ShapeAttributes a) (Body a)
 shapeBody = wrappedSA . H.shapeBody . to BWrap
-
--- shapeGeometry :: Lens' (ShapeAttributes a) (H.Geometry Float)
--- shapeGeometry = wrappedSA . H.shapeGeometry
---
--- shapeOffset :: Lens' (ShapeAttributes a) (P2 Float)
--- shapeOffset = wrappedSA . H.shapeOffset
---
--- shapeMass :: Lens' (ShapeAttributes a) Float
--- shapeMass = wrappedSA . H.shapeMass
 
 shapeCategoryMask :: Lens' (ShapeAttributes a) Word64
 shapeCategoryMask = wrappedSA . H.shapeCategoryMask
@@ -220,27 +225,34 @@ getCollisionEvents (SPWrap sp) = do
     run <- view runWithActions
     liftIO $ H.setDefaultCollisionHandler sp H.Handler
       { H.beginHandler = Just $ do
-          (sa, sb) <- H.shapes
-          -- check for category
-          saa <- S.get (H.shapeAttributes sa)
-          sab <- S.get (H.shapeAttributes sb)
-          if saa^.H.shapeCollisionMask .&. sab^.H.shapeCategoryMask == 0
-            || sab^.H.shapeCollisionMask .&. saa^.H.shapeCategoryMask == 0
-            then return False
-            else do
-              H.postStep sa $ do
-                liftIO $ readRef trBegin
-                  >>= mapM_ (\tr -> run ([tr ==> (toSA saa, toSA sab)], return ()))
-              return True
+          H.shapes >>= \case
+            Just (sa, sb) -> do
+              -- check for category
+              saa <- S.get (H.shapeAttributes sa)
+              sab <- S.get (H.shapeAttributes sb)
+              if saa^.H.shapeCollisionMask .&. sab^.H.shapeCategoryMask == 0
+                || sab^.H.shapeCollisionMask .&. saa^.H.shapeCategoryMask == 0
+                then return False
+                else do
+                  H.postStep sa $ do
+                    liftIO $ readRef trBegin
+                      >>= mapM_ (\tr -> run ([tr ==> (toSA saa, toSA sab)], return ()))
+                  return True
+            _ -> return False
       , H.preSolveHandler = Nothing
       , H.postSolveHandler = Nothing
       , H.separateHandler = Just $ do
-          (sa, sb) <- H.shapes
-          saa <- S.get (H.shapeAttributes sa)
-          sab <- S.get (H.shapeAttributes sb)
-          H.postStep sa $ do
-            liftIO $ readRef trSeparate
-              >>= mapM_ (\tr -> run ([tr ==> (toSA saa, toSA sab)], return ()))
+          -- XXX: a bit of optimization: don't check shapes if we don't even have the trigger
+          liftIO (readRef trSeparate) >>= \case
+            Just tr -> do
+              H.shapes >>= \case
+                Just (sa, sb) -> do
+                  saa <- S.get (H.shapeAttributes sa)
+                  sab <- S.get (H.shapeAttributes sb)
+                  H.postStep sa $ do
+                    liftIO $ run ([tr ==> (toSA saa, toSA sab)], return ())
+                _ -> return ()
+            _ -> return ()
       }
     return $ CollisionEvents eBegin eSeparate
 
@@ -269,18 +281,18 @@ shape :: MonadIO m
       -> Body a
       -> H.Geometry Float
       -> [Prop (Space a, Shape a) m]
-      -> m ()
-shape wsp@(SPWrap sp) (BWrap b) geo props = do
+      -> m (Shape a)
+shape wsp (BWrap b) geo props = do
     sh <- liftIO . H.newShape $ H.ShapeAttributes
             b                    -- body
             (realToFrac <$> geo) -- geo
             0                    -- offset
-            (0/1)                -- mass
+            (1/0)                -- mass
             0                    -- categoryMask
             maxBound             -- collisionMask
-    liftIO $ H.recomputeTotalMassAndMoment sp b
     let wrapped = SWrap sh
     setProps (wsp, wrapped) props
+    return wrapped
 
 
 liftStateVar :: MonadIO m => (b -> StateVar a) -> Attrib' b m a
@@ -380,8 +392,10 @@ mass = Attrib getter setter
         setter w v = liftIO $ do
           let sh = toShape w
           H.mass sh S.$= realToFrac v
-          bd <- view H.shapeBody <$> S.get (H.shapeAttributes sh)
-          H.recomputeTotalMassAndMoment (toSpace w) bd
+          act <- H.inSpace sh
+          when act $ do
+            bd <- view H.shapeBody <$> S.get (H.shapeAttributes sh)
+            H.recomputeTotalMassAndMoment (toSpace w) bd
 
 offset :: (MonadIO m, ShapePtr a e, SpacePtr a e) => Attrib' e m (P2 Float)
 offset = Attrib getter setter
@@ -389,8 +403,10 @@ offset = Attrib getter setter
         setter w v = liftIO $ do
           let sh = toShape w
           H.offset sh S.$= realToFrac <$> v
-          bd <- view H.shapeBody <$> S.get (H.shapeAttributes sh)
-          H.recomputeTotalMassAndMoment (toSpace w) bd
+          act <- H.inSpace sh
+          when act $ do
+            bd <- view H.shapeBody <$> S.get (H.shapeAttributes sh)
+            H.recomputeTotalMassAndMoment (toSpace w) bd
 
 geometry :: (MonadIO m, ShapePtr a e, SpacePtr a e) => Attrib' e m (H.Geometry Float)
 geometry = Attrib getter setter
@@ -398,8 +414,10 @@ geometry = Attrib getter setter
         setter w v = liftIO $ do
           let sh = toShape w
           H.geometry sh S.$= realToFrac <$> v
-          bd <- view H.shapeBody <$> S.get (H.shapeAttributes sh)
-          H.recomputeTotalMassAndMoment (toSpace w) bd
+          act <- H.inSpace sh
+          when act $ do
+            bd <- view H.shapeBody <$> S.get (H.shapeAttributes sh)
+            H.recomputeTotalMassAndMoment (toSpace w) bd
 
 categoryMask :: (MonadIO m, ShapePtr a s) => Attrib' s m Word64
 categoryMask = liftStateVar $ H.categoryMask . toShape
