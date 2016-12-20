@@ -35,95 +35,175 @@ import Graphics.UI.Cocos2d.Director
 
 import Reflex.Cocos2d.Class
 
+-- spec
+-- class ( ReflexHost t, MonadIO m, MonadIO (HostFrame t), MonadFix m, MonadHold t m
+--       , MonadRef m, Ref m ~ Ref IO, MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
+--       , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
+--       , MonadReader (NodeTreeEnv t) m
+--       , EventSequencer t (HostFrame t) m
+--       , EventSequencer t m m -- sequence itself
+--       , MonadException m, MonadAsyncException m
+--       , MonadException (HostFrame t), MonadAsyncException (HostFrame t)
+--       )
+--       => NodeBuilder t m where
+--     -- this one should be thread-safe
+--     -- askRunWithActionsAsync :: m (([DSum (EventTrigger t) Identity], IO ()) -> IO ())
+--
+--     -- | Run a tree with the initial content and the updated content
+--     -- whenever the event updates
+--     holdNodes :: NodePtr n => m a -> Event t (m b) -> m (a, Event t b)
+
 -- mostly borrowed from Reflex.Dom.Internal
-data GraphState t = GraphState { _graphVoidActions :: ![Event t (HostFrame t ())] }
+data BuilderState t = BuilderState
+    { _builderVoidActions :: ![Event t (IO ())]
+    , _builderFinalizers  :: IO ()
+    }
 
-graphVoidActions ::
-  forall t. Lens' (GraphState t) [Event t (HostFrame t ())]
-graphVoidActions
-  f (GraphState vas)
-  = fmap GraphState (f vas)
-{-# INLINE graphVoidActions #-}
 
-newtype Graph t a = Graph (ReaderT (NodeGraphEnv t) (StateT (GraphState t) (HostFrame t)) a)
+builderVoidActions ::
+  forall t.
+  Lens [Event t (IO ())] [Event t (IO ())]
+builderVoidActions f (BuilderState act fin)
+  = fmap (\ act' -> BuilderState act' fin) (f act)
+{-# INLINE builderVoidActions #-}
 
-deriving instance Monad (HostFrame t) => MonadReader (NodeGraphEnv t) (Graph t)
-deriving instance Functor (HostFrame t) => Functor (Graph t)
-deriving instance Monad (HostFrame t) => Applicative (Graph t)
-deriving instance Monad (HostFrame t) => Monad (Graph t)
-deriving instance MonadFix (HostFrame t) => MonadFix (Graph t)
-deriving instance MonadIO (HostFrame t) => MonadIO (Graph t)
-deriving instance MonadException (HostFrame t) => MonadException (Graph t)
-deriving instance MonadAsyncException (HostFrame t) => MonadAsyncException (Graph t)
+builderFinalizers ::
+  forall t.
+  Lens (IO ()) (IO ())
+builderFinalizers f (BuilderState act fin)
+  = fmap (\ fin' -> BuilderState act fin') (f fin)
+{-# INLINE builderVoidActions #-}
 
-instance (Reflex t, MonadSample t (HostFrame t)) => MonadSample t (Graph t) where
-    sample = Graph . lift . lift . sample
+newtype NodeBuilder t a = NodeBuilder (ReaderT (NodeBuilderEnv t) (StateT (BuilderState t) (HostFrame t)) a)
 
-instance (Reflex t, MonadHold t (HostFrame t)) => MonadHold t (Graph t) where
-    hold v0 = Graph . lift . lift . hold v0
-    holdDyn v0 = Graph . lift . lift . holdDyn v0
-    holdIncremental v0 = Graph . lift . lift . holdIncremental v0
+deriving instance Monad (HostFrame t) => MonadReader (NodeBuilderEnv t) (NodeBuilder t)
+deriving instance Functor (HostFrame t) => Functor (NodeBuilder t)
+deriving instance Monad (HostFrame t) => Applicative (NodeBuilder t)
+deriving instance Monad (HostFrame t) => Monad (NodeBuilder t)
+deriving instance MonadFix (HostFrame t) => MonadFix (NodeBuilder t)
+deriving instance MonadIO (HostFrame t) => MonadIO (NodeBuilder t)
+deriving instance MonadException (HostFrame t) => MonadException (NodeBuilder t)
+deriving instance MonadAsyncException (HostFrame t) => MonadAsyncException (NodeBuilder t)
 
-instance MonadReflexCreateTrigger t (HostFrame t) => MonadReflexCreateTrigger t (Graph t) where
-    newEventWithTrigger = Graph . lift . lift . newEventWithTrigger
-    newFanEventWithTrigger = Graph . lift . lift . newFanEventWithTrigger
+addFinalizer :: IO () -> NodeBuilder t ()
+addFinalizer = builderFinalizers
 
-instance (Reflex t, MonadSubscribeEvent t (HostFrame t)) => MonadSubscribeEvent t (Graph t) where
-    subscribeEvent = Graph . lift . lift . subscribeEvent
+instance (Reflex t, MonadSample t (HostFrame t)) => MonadSample t (NodeBuilder t) where
+    sample = NodeBuilder . lift . lift . sample
 
-instance MonadRef (HostFrame t) => MonadRef (Graph t) where
-    type Ref (Graph t) = Ref (HostFrame t)
-    newRef = Graph . lift . lift . newRef
-    readRef = Graph . lift . lift . readRef
-    writeRef r = Graph . lift . lift . writeRef r
+instance (Reflex t, MonadHold t (HostFrame t)) => MonadHold t (NodeBuilder t) where
+    hold v0 = NodeBuilder . lift . lift . hold v0
+    holdDyn v0 = NodeBuilder . lift . lift . holdDyn v0
+    holdIncremental v0 = NodeBuilder . lift . lift . holdIncremental v0
+
+instance MonadReflexCreateTrigger t (HostFrame t) => MonadReflexCreateTrigger t (NodeBuilder t) where
+    newEventWithTrigger = NodeBuilder . lift . lift . newEventWithTrigger
+    newFanEventWithTrigger = NodeBuilder . lift . lift . newFanEventWithTrigger
+
+instance (Reflex t, MonadSubscribeEvent t (HostFrame t)) => MonadSubscribeEvent t (NodeBuilder t) where
+    subscribeEvent = NodeBuilder . lift . lift . subscribeEvent
+
+instance MonadRef (HostFrame t) => MonadRef (NodeBuilder t) where
+    type Ref (NodeBuilder t) = Ref (HostFrame t)
+    newRef = NodeBuilder . lift . lift . newRef
+    readRef = NodeBuilder . lift . lift . readRef
+    writeRef r = NodeBuilder . lift . lift . writeRef r
+
+instance EventSequencer t IO (NodeBuilder t) where
+    seqEvent_ e = NodeBuilder $ builderVoidActions %= (e:)
+    seqEventMaybe e = do
+      run <- view runWithActions
+      (eResult, trigger) <- newEventWithTriggerRef
+      forEvent_ e $ \o -> do
+          o >>= \case
+            Just x -> readRef trigger >>= mapM_ (\t -> run ([t ==> x], return ()))
+            _ -> return ()
+      return eResult
+
+-- two builder types for explicit specification of behavior on seqEvent'ing of builders
+newtype RefreshBuilder t a = RefreshBuilder (NodeBuilder t a)
+    deriving (Monad, Functor, Applicative, MonadFix, MonadIO, MonadException, MonadAsyncException)
+
+newtype AccumBuilder t a = AccumBuilder (NodeBuilder t a)
+    deriving (Monad, Functor, Applicative, MonadFix, MonadIO, MonadException, MonadAsyncException)
+
+-- accumulation of builder
+instance EventSequencer t (NodeBuilder t) (NodeBuilder t) where
+    seqEvent_ e = do
+        vas <- NodeBuilder $ use builderVoidActions <* (builderVoidActions .= [])
+        result0 <- subBuilder p' child0
+        vas' <- NodeBuilder $ use builderVoidActions <* (builderVoidActions .= vas)
+        let voidAction0 = mergeWith (flip (>>)) vas'
+        (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
+        runEvent_ =<< switchPromptly voidAction0 (snd <$> newChildBuilt)
+        builderEnv <- ask
+        let run = builderEnv ^. runWithActions
+        onEvent_ newChild $ \(NodeBuilder g) -> do
+            liftIO $ node_removeAllChildren p'
+            (postBuildE, postBuildTr) <- newEventWithTriggerRef
+            let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
+            (r, BuilderState vas)
+              <- runStateT
+                  (runReaderT g $ builderEnv & parent .~ p'
+                                           & postBuildEvent .~ postBuildE)
+                  (BuilderState [])
+            liftIO $ readRef newChildBuiltTriggerRef
+                      >>= mapM_ (\t -> run ([t ==> (r, mergeWith (flip (>>)) vas)], firePostBuild))
+        return (result0, fst <$> newChildBuilt)
+    seqEventMaybe e = undefined
+
+instance EventSequenceHolder t (NodeBuilder t) (NodeBuilder t) where
+    pass...
+
 
 instance ( MonadIO (HostFrame t), Functor (HostFrame t)
          , MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
          , MonadException (HostFrame t), MonadAsyncException (HostFrame t)
-         , ReflexHost t ) => NodeGraph t (Graph t) where
-    subGraph n = local (parent .~ toNode n)
-    holdGraph p child0 newChild = do
+         , ReflexHost t ) => NodeBuilder t (NodeBuilder t) where
+    subBuilder n = local (parent .~ toNode n)
+    holdBuilder p child0 newChild = do
         let p' = toNode p
-        vas <- Graph $ use graphVoidActions <* (graphVoidActions .= [])
-        result0 <- subGraph p' child0
-        vas' <- Graph $ use graphVoidActions <* (graphVoidActions .= vas)
+        vas <- NodeBuilder $ use builderVoidActions <* (builderVoidActions .= [])
+        result0 <- subBuilder p' child0
+        vas' <- NodeBuilder $ use builderVoidActions <* (builderVoidActions .= vas)
         let voidAction0 = mergeWith (flip (>>)) vas'
         (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
         runEvent_ =<< switchPromptly voidAction0 (snd <$> newChildBuilt)
-        graphEnv <- ask
-        let run = graphEnv ^. runWithActions
-        onEvent_ newChild $ \(Graph g) -> do
+        builderEnv <- ask
+        let run = builderEnv ^. runWithActions
+        onEvent_ newChild $ \(NodeBuilder g) -> do
             liftIO $ node_removeAllChildren p'
             (postBuildE, postBuildTr) <- newEventWithTriggerRef
             let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
-            (r, GraphState vas)
+            (r, BuilderState vas)
               <- runStateT
-                  (runReaderT g $ graphEnv & parent .~ p'
+                  (runReaderT g $ builderEnv & parent .~ p'
                                            & postBuildEvent .~ postBuildE)
-                  (GraphState [])
+                  (BuilderState [])
             liftIO $ readRef newChildBuiltTriggerRef
                       >>= mapM_ (\t -> run ([t ==> (r, mergeWith (flip (>>)) vas)], firePostBuild))
         return (result0, fst <$> newChildBuilt)
-    buildEvent newChild = do
-        (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
-        let onNewChildBuilt :: Event t (HostFrame t ()) -> (a, [Event t (HostFrame t ())]) -> Maybe (Event t (HostFrame t ()))
-            onNewChildBuilt _ (_, []) = Nothing
-            onNewChildBuilt acc (_, vas) = Just $ mergeWith (>>) (acc:reverse vas)
-        runEvent_ . switch =<< accumMaybe onNewChildBuilt (never :: Event t (HostFrame t ())) newChildBuilt
-        graphEnv <- ask
-        let run = graphEnv ^. runWithActions
-        onEvent_ newChild $ \(Graph g) -> do
-            (postBuildE, postBuildTr) <- newEventWithTriggerRef
-            let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
-            (r, GraphState vas)
-              <- runStateT
-                  (runReaderT g $ graphEnv & postBuildEvent .~ postBuildE)
-                  (GraphState [])
-            liftIO $ readRef newChildBuiltTriggerRef
-                      >>= mapM_ (\t -> run ([t ==> (r, vas)], firePostBuild))
-        return $ fst <$> newChildBuilt
+    buildEvent = undefined
+    -- buildEvent newChild = do
+    --     (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
+    --     let onNewChildBuilt :: Event t (HostFrame t ()) -> (a, [Event t (HostFrame t ())]) -> Maybe (Event t (HostFrame t ()))
+    --         onNewChildBuilt _ (_, []) = Nothing
+    --         onNewChildBuilt acc (_, vas) = Just $ mergeWith (>>) (acc:reverse vas)
+    --     runEvent_ . switch =<< accumMaybe onNewChildBuilt (never :: Event t (HostFrame t ())) newChildBuilt
+    --     builderEnv <- ask
+    --     let run = builderEnv ^. runWithActions
+    --     onEvent_ newChild $ \(NodeBuilder g) -> do
+    --         (postBuildE, postBuildTr) <- newEventWithTriggerRef
+    --         let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
+    --         (r, BuilderState vas)
+    --           <- runStateT
+    --               (runReaderT g $ builderEnv & postBuildEvent .~ postBuildE)
+    --               (BuilderState [])
+    --         liftIO $ readRef newChildBuiltTriggerRef
+    --                   >>= mapM_ (\t -> run ([t ==> (r, vas)], firePostBuild))
+    --     return $ fst <$> newChildBuilt
     buildEvent_ = void . buildEvent
-    runEvent_ a = Graph $ graphVoidActions %= (a:)
+    runEvent_ a = NodeBuilder $ builderVoidActions %= (a:)
     runEventMaybe e = do
       run <- view runWithActions
       (eResult, trigger) <- newEventWithTriggerRef
@@ -140,14 +220,14 @@ instance ( MonadIO (HostFrame t), Functor (HostFrame t)
     -- to be pushed pending and only fired when the current runWithActions
     -- finishes
     -- delay' = runEvent . fmap return
-    -- askRunWithActionsAsync = Graph $ do
-    --   runWithActions <- view graphRunWithActions
+    -- askRunWithActionsAsync = NodeBuilder $ do
+    --   runWithActions <- view builderRunWithActions
     --   sch <- liftIO $ director_getInstance >>= director_getScheduler
     --   return $ scheduler_performFunctionInCocosThread sch . runWithActions
 
--- | Construct a new scene with a NodeGraph
-mainScene :: Graph Spider a -> IO ()
-mainScene (Graph g) = do
+-- | Construct a new scene with a NodeBuilder
+mainScene :: NodeBuilder Spider a -> IO ()
+mainScene (NodeBuilder g) = do
     scene <- scene_create
     dtor <- director_getInstance
     winSize <- decode =<< director_getWinSize dtor
@@ -180,11 +260,11 @@ mainScene (Graph g) = do
               (\ss -> runWithActions ([tr ==> ss], return ()))
               target 0 False "ticks"
             return $ scheduler_unschedule sch "ticks" target
-        GraphState vas
+        BuilderState vas
           <- runHostFrame $
               execStateT
-                (runReaderT g (NodeGraphEnv (toNode scene) winSize postBuildE ticks runWithActions))
-                (GraphState [])
+                (runReaderT g (NodeBuilderEnv (toNode scene) winSize postBuildE ticks runWithActions))
+                (BuilderState [])
         voidActionHandle <- subscribeEvent $ mergeWith (flip (>>)) vas
         liftIO $ readRef postBuildTr >>= mapM_ (\t -> runWithActions ([t ==> ()], return ()))
     director_getInstance >>= flip director_runWithScene scene
