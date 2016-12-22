@@ -54,15 +54,16 @@ import Reflex.Cocos2d.Class
 --     holdNodes :: NodePtr n => m a -> Event t (m b) -> m (a, Event t b)
 
 -- mostly borrowed from Reflex.Dom.Internal
-data BuilderState t = BuilderState
-    { _builderVoidActions :: ![Event t (IO ())]
-    , _builderFinalizers  :: IO ()
+data BuilderState t m = BuilderState
+    { _builderVoidActions :: ![Event t (m ())]
+    , _builderFinalizers  :: m ()
     }
 
 
+-- TODO: fix this
 builderVoidActions ::
   forall t.
-  Lens [Event t (IO ())] [Event t (IO ())]
+  Lens [Event t (m ())] [Event t (IO ())]
 builderVoidActions f (BuilderState act fin)
   = fmap (\ act' -> BuilderState act' fin) (f act)
 {-# INLINE builderVoidActions #-}
@@ -74,19 +75,23 @@ builderFinalizers f (BuilderState act fin)
   = fmap (\ fin' -> BuilderState act fin') (f fin)
 {-# INLINE builderVoidActions #-}
 
-newtype NodeBuilder t a = NodeBuilder (ReaderT (NodeBuilderEnv t) (StateT (BuilderState t) (HostFrame t)) a)
+newtype NodeBuilder t m a = NodeBuilder (ReaderT (NodeBuilderEnv t) (StateT (BuilderState t) m) a)
 
-deriving instance Monad (HostFrame t) => MonadReader (NodeBuilderEnv t) (NodeBuilder t)
-deriving instance Functor (HostFrame t) => Functor (NodeBuilder t)
-deriving instance Monad (HostFrame t) => Applicative (NodeBuilder t)
-deriving instance Monad (HostFrame t) => Monad (NodeBuilder t)
-deriving instance MonadFix (HostFrame t) => MonadFix (NodeBuilder t)
-deriving instance MonadIO (HostFrame t) => MonadIO (NodeBuilder t)
-deriving instance MonadException (HostFrame t) => MonadException (NodeBuilder t)
-deriving instance MonadAsyncException (HostFrame t) => MonadAsyncException (NodeBuilder t)
+deriving instance Monad m => MonadReader (NodeBuilderEnv t) (NodeBuilder t m)
+deriving instance Functor m => Functor (NodeBuilder t m)
+deriving instance Monad m => Applicative (NodeBuilder t m)
+deriving instance Monad m => Monad (NodeBuilder t m)
+deriving instance MonadFix m => MonadFix (NodeBuilder t m)
+deriving instance MonadIO m => MonadIO (NodeBuilder t m)
+deriving instance MonadException m => MonadException (NodeBuilder t m)
+deriving instance MonadAsyncException m => MonadAsyncException (NodeBuilder t m)
 
-addFinalizer :: IO () -> NodeBuilder t ()
-addFinalizer = builderFinalizers
+addFinalizer :: m () -> NodeBuilder t m ()
+addFinalizer a = builderFinalizers %= (a:)
+
+runBuilder
+  :: NodeBuilder t m a -> NodeBuilderEnv t -> BuilderState t -> m (a, BuilderState t)
+runBuilder (NodeBuilder builder) env = runStateT $ runReaderT builder env
 
 instance (Reflex t, MonadSample t (HostFrame t)) => MonadSample t (NodeBuilder t) where
     sample = NodeBuilder . lift . lift . sample
@@ -120,14 +125,6 @@ instance EventSequencer t IO (NodeBuilder t) where
             _ -> return ()
       return eResult
 
--- two builder types for explicit specification of behavior on seqEvent'ing of builders
-newtype RefreshBuilder t a = RefreshBuilder (NodeBuilder t a)
-    deriving (Monad, Functor, Applicative, MonadFix, MonadIO, MonadException, MonadAsyncException)
-
-newtype AccumBuilder t a = AccumBuilder (NodeBuilder t a)
-    deriving (Monad, Functor, Applicative, MonadFix, MonadIO, MonadException, MonadAsyncException)
-
--- accumulation of builder
 instance EventSequencer t (NodeBuilder t) (NodeBuilder t) where
     seqEvent_ e = do
         vas <- NodeBuilder $ use builderVoidActions <* (builderVoidActions .= [])
