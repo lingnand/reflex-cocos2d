@@ -17,30 +17,14 @@ module Reflex.Cocos2d.Class
     , postBuildEvent
     , frameTicks
     , runWithActions
+
+    , EventSequencer(..)
+    , EventSequenceHolder(..)
+
     , NodeBuilder(..)
-    , (-<)
-    , (-|)
-    , (-<<)
-    , (<-<)
+
     , postponeCurrent
-    , buildDyn
-    , buildDyn'
-    , runDyn
-    -- * Free
-    , switchFree
-    , switchFreeT
-    , runGreedyFreeT
-    , buildGreedyFreeT
-    , waitEvent
-    , waitEvent'
-    , waitEvent_
-    , waitDynMaybe
-    , waitDynMaybe'
-    , waitDynMaybe_
-    -- * Time
-    , modulate
-    -- * Rand
-    , runRandEvent
+    , postpone
     )
   where
 
@@ -48,6 +32,7 @@ import Data.Monoid
 import Data.Tuple (swap)
 import Data.Dependent.Sum (DSum (..))
 import Data.Functor.Identity
+import Data.Functor.Contravariant
 import Data.Bifunctor
 import Diagrams (V2)
 import Control.Monad
@@ -55,13 +40,13 @@ import Control.Monad.Trans
 import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Trans.Free
-import Control.Monad.Trans.Writer
 import Control.Monad.State.Strict
 import Control.Monad.Reader
 import Control.Monad.Exception
 import Control.Monad.Random
 import Control.Lens
 import Reflex
+import Reflex.Cocos2d.Attributes
 import Reflex.State
 import Reflex.Host.Class
 import Graphics.UI.Cocos2d.Node
@@ -129,17 +114,32 @@ windowSize
       (f winSize)
 {-# INLINE windowSize #-}
 
-class (Reflex t, Monad im, Monad m) => EventSequenceHolder t im m where
-    seqHold :: (im a) -> Event t (im a) -> m (Event t a)
+
+class (Reflex t, Monad im, MonadHold t m) => EventSequenceHolder t im m where
+    seqHold :: (im a) -> Event t (im b) -> m (a, Event t b)
+    seqHoldDyn :: (im a) -> Event t (im a) -> m (Dynamic t a)
+    seqHoldDyn init e = seqHold init e >>= uncurry holdDyn
+    -- non-strict evaluation of dynamic
+    seqDyn  :: Dynamic t (im a) -> m (Event t a)
+    -- strict evaluation
+    seqDyn' :: Dynamic t (im a) -> m (Dynamic t a)
+    seqDyn' d = sample (current d) >>= flip seqHoldDyn (updated d)
 
 
 class (Reflex t, Monad im, Monad m) => EventSequencer t im m where
     seqEventMaybe :: Event t (im (Maybe a)) -> m (Event t a)
     seqEventMaybe = fmap (fmapMaybe id) . seqEvent
-    seqEvent_ :: Event t (im ()) -> m ()
-    seqEvent_ = void . seqEvent
     seqEvent :: Event t (im a) -> m (Event t a)
     seqEvent = seqEventMaybe . fmap (Just <$>)
+    seqEvent_ :: Event t (im ()) -> m ()
+    seqEvent_ = void . seqEvent
+
+    seqMapEventMaybe :: (a -> im (Maybe b)) -> Event t a -> m (Event t b)
+    seqMapEventMaybe f = seqEventMaybe . fmap f
+    seqMapEvent :: (a -> im b) -> Event t a -> m (Event t b)
+    seqMapEvent f = seqEvent . fmap f
+    seqMapEvent_ ::  (a -> im ()) -> Event t a -> m ()
+    seqMapEvent_ f = seqEvent_ . fmap f
 
     forEventMaybe :: Event t a -> (a -> im (Maybe b)) -> m (Event t b)
     forEventMaybe e = seqEventMaybe . ffor e
@@ -147,11 +147,6 @@ class (Reflex t, Monad im, Monad m) => EventSequencer t im m where
     forEvent e = seqEvent . ffor e
     forEvent_ :: Event t a -> (a -> im ()) -> m ()
     forEvent_ e = seqEvent_ . ffor e
-
-    filterMEvent :: (a -> im Bool) -> Event t a -> m (Event t a)
-    filterMEvent f e = seqEventMaybe . ffor e $ \v -> do
-                            b <- f v
-                            return $ guard b >> return v
 
 class Reflex t => SequenceAccumulator t f | f -> t where
     seqAccum :: (MonadHold t m, MonadFix m, EventSequencer t im m)
@@ -165,7 +160,7 @@ class Reflex t => SequenceAccumulator t f | f -> t where
                 => (a -> b -> im (a, c)) -> a -> Event t b -> m (f a, Event t c)
     seqMapAccum f = seqMapAccumMaybe $ \v o -> bimap Just Just <$> f v o
 
-    seqMapAccumMaybe :: (MonadHold t m, MonadFix m)
+    seqMapAccumMaybe :: (MonadHold t m, MonadFix m, EventSequencer t im m)
                      => (a -> b -> im (Maybe a, Maybe c)) -> a -> Event t b -> m (f a, Event t c)
 
 seqMapAccum_ :: forall t im m a b c. (Reflex t, MonadHold t m, MonadFix m, EventSequencer t im m)
@@ -174,141 +169,92 @@ seqMapAccum_ f z e = do
     (_ :: Dynamic t a, result) <- seqMapAccum f z e
     return result
 
-seqMapAccumMaybe_ :: forall t im m a b c. (MonadHold t m, MonadFix m)
-                  => (a -> b -> im (Maybe a, Maybe c)) -> a -> Event t b -> m (Event t c)
+seqMapAccumMaybe_ :: forall t im m a b c.
+  (Reflex t, MonadHold t m, MonadFix m, EventSequencer t im m)
+  => (a -> b -> im (Maybe a, Maybe c)) -> a -> Event t b -> m (Event t c)
 seqMapAccumMaybe_ f z e = do
     (_ :: Dynamic t a, result) <- seqMapAccumMaybe f z e
     return result
 
-class Reflex t => SequenceAccumulator t (Dynamic t) where
+instance Reflex t => SequenceAccumulator t (Dynamic t) where
     seqAccumMaybe f z e = do
-      rec evt <- seqEvent $ pushAlways e $ \b -> do
+      rec evt <- seqEvent $ flip pushAlways e $ \b -> do
             a <- sample (current da)
-            f a b
+            return $ f a b
           da <- holdDyn z $ fmapMaybe id evt
       return da
     seqMapAccumMaybe f z e = do
-      rec evt <- seqEvent $ pushAlways e $ \b -> do
+      rec evt <- seqEvent $ flip pushAlways e $ \b -> do
             a <- sample (current da)
-            f a b
-          da <- holdDyn z $ fmayMaybe fst evt
+            return $ f a b
+          da <- holdDyn z $ fmapMaybe fst evt
       return (da, fmapMaybe snd evt)
 
-class (MonadIO m, Reflex t, MonadHold t m, MonadFix m, EventSequencer t im m)
-     => EventSequencer t (RandT StdGen im) m where
+instance {-# INCOHERENT #-}
+    (MonadIO m, Reflex t, MonadHold t m, MonadFix m, EventSequencer t im m)
+    => EventSequencer t (RandT StdGen im) m where
     seqEventMaybe rands = do
       g <- liftIO newStdGen
-      seqMapAccumMaybe (\g ma -> first Just . swap <$> runRandT ma g) g rands
+      seqMapAccumMaybe_ (\g ma -> first Just . swap <$> runRandT ma g) g rands
 
--- Add Finalizers that will be run on each new event
+class
+  ( Reflex t
+  , MonadReflexCreateTrigger t host, MonadSubscribeEvent t host
+  , MonadSample t host, MonadHold t host, MonadFix host
+  , MonadRef host, Ref host ~ Ref IO
+  , MonadIO host
+  , MonadReader (NodeBuilderEnv t) m
+  , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
+  , MonadSample t m, MonadHold t m, MonadFix m
+  , MonadRef m, Ref m ~ Ref IO
+  , MonadIO m
+  , EventSequencer t host m
+  , EventSequencer t m m
+  , EventSequenceHolder t m m
+  ) => NodeBuilder t host m | m -> host where
+    -- add finalizer into the builder
+    addFinalizer :: host () -> m ()
 
-class (EventSequencer t im m, MonadFix m, MonadHold t m)
-     => EventSequencer t (FinalizerT im) m where
-    seqEventMaybe e = seqMapAccumMaybe_ f (return ()) e
-      where f lastFin (FinalizerT m) = lastFin >> first Just . swap <$> runWriterT m
-
--- * Compositions
--- | Embed
--- e.g., @nodeBuilder -< child@
-infixr 2 -<
-(-<) :: (NodeBuilder t m, NodePtr n) => m n -> m a -> m (n, a)
-(-<) node child = do
-    n <- node
-    a <- local (parent .~ n) child
-    return (n, a)
-
--- | Hold
--- e.g., @newChild & nodeBuilder -| child0@
-infixr 2 -|
-(-<<) :: NodeBuilder t m => m a -> Event t (m a) -> m (Dynamic t a)
-(-<<) child0 newChild = do
-    (result0, newResult) <- holdNodes child0 newChild
-    dyn <- holdDyn result0 newResult
-    return (n, dyn)
-
--- | View
--- e.g., @nodeBuilder -< child@
-dynNodes :: NodeBuilder t m => Dynamic t (m a) -> m (Event t a)
-dynNodes child = do
-    (_, evt) <- holdNodes (return ()) =<< postponeCurrent child
-    return evt
-
--- | Greedy Free
-freeNodes :: (NodeBuilder t m, NodePtr n) => FreeT (Event t) m a -> m (Event t a)
-freeNodes ft = mdo
-    pe <- view postBuildEvent
-    let startE = case result0 of
-          Pure a -> return a <$ pe
-          Free e -> e
-    newFs <- switchPromptly startE $ fmapMaybe previewFree newResult
-    (result0, newResult) <- holdNodes (runFreeT ft) (runFreeT <$> newFs)
-    return $ fmapMaybe previewPure newResult
-
--- | Convert to an Event that carries the first value in postBuild
-postponeCurrent :: NodeBuilder t m => Dynamic t a -> m (Event t a)
+-- Helper
+-- | Convert Dynamic to an Event that carries the first value in postBuild
+postponeCurrent :: (Reflex t, MonadReader (NodeBuilderEnv t) m)
+                => Dynamic t a -> m (Event t a)
 postponeCurrent d = do
     pe <- view postBuildEvent
     return $ leftmost [ pushAlways (const $ sample (current d)) pe
                       , updated d ]
 
--- lazy version of building dyn
-accumDynNodes :: NodeBuilder t m => Dynamic t (m a) -> m (Event t a)
-accumDynNodes = buildEvent <=< postponeCurrent
+postpone :: (Reflex t, MonadReader (NodeBuilderEnv t) m) => a -> m (Event t a)
+postpone v = fmap (const v) <$> view postBuildEvent
 
--- strict version
-accumDynNodes' :: NodeBuilder t m => Dynamic t (m a) -> m (Dynamic t a)
-accumDynNodes' d = do
-    a <- join $ sample (current d)
-    evt <- buildEvent (updated d)
-    holdDyn a evt
+-- * Compositions
+-- | Embed
+-- e.g., @nodeBuilder -< child@
+infixr 2 -<
+(-<) :: (NodePtr n, MonadReader (NodeBuilderEnv t) m)
+     => m n -> m a -> m (n, a)
+(-<) node child = do
+    n <- node
+    a <- local (parent .~ toNode n) child
+    return (n, a)
 
-seqDyn :: (NodeBuilder t m, EventSequencer t im m) => Dynamic t (im a) -> m (Event t a)
-seqDyn = seqEvent <=< postponeCurrent
+-- -- | Greedy Free
+seqHoldFree :: forall t im m a.
+               ( MonadFix m, MonadHold t m
+               , MonadReader (NodeBuilderEnv t) m
+               , EventSequenceHolder t im m )
+            => FreeT (Event t) im a -> m (Event t a)
+seqHoldFree ft = mdo
+    let startE = case result0 of
+          Pure a -> never :: Event t (FreeT (Event t) im a)
+          Free e -> e
+    newFs <- switchPromptly startE $ fmapMaybe previewFree newResult
+    (result0, newResult) <- seqHold (runFreeT ft) (runFreeT <$> newFs)
+    case result0 of
+      Pure a -> postpone a
+      _ -> return $ fmapMaybe previewPure newResult
 
-
-switchFreeT' :: (Reflex t, MonadHold t m)
-          => (forall x. m' x -> m x)
-          -> (forall x. m' x -> PushM t x)
-          -> FreeT (Event t) m' a -> m (FreeF (Event t) a a)
-switchFreeT' hoistM hoistPush ft = hoistM (runFreeT ft) >>= \case
-    Pure a -> return $ Pure a
-    Free e -> Free <$> switchPromptly never flattened
-      where flattened = flip pushAlways e $ switchFreeT' hoistPush hoistPush >=> \case
-                            Pure a -> return $ a <$ e
-                            Free ie -> return ie
-
--- | Merge a deeply nested Event into a single Event
-switchFree :: NodeBuilder t m => Free (Event t) a -> m (Event t a)
-switchFree f = do
-    let hoist (Identity x) = return x
-    switchFreeT' hoist hoist f >>= \case
-      Pure a -> fmap (a <$) $ view postBuildEvent
-      Free e -> return e
-
-switchFreeT :: NodeBuilder t m => FreeT (Event t) (PushM t) a -> m (Event t a)
-switchFreeT f = do
-    e <- view postBuildEvent
-    let e' = flip pushAlways e $ \_ -> switchFreeT' id id f >>= \case
-          Pure a -> return $ a <$ e
-          Free e -> return e
-    switchPromptly never e'
-
--- | Depth visit the nested events in the FreeT
-seqFreeNodes :: (NodeBuilder t m, EventSequencer t im m) => FreeT (Event t) im a -> m (Event t a)
-seqFreeNodes ft = do
-    pe <- view postBuildEvent
-    rec newFs <- switchPromptly (ft <$ pe) $ fmapMaybe previewFree e'
-        e' <- seqEvent $ runFreeT <$> newFs
-    return $ fmapMaybe previewPure e'
-
-accumFreeNodes :: NodeBuilder t m => FreeT (Event t) m a -> m (Event t a)
-accumFreeNodes ft = runFreeT ft >>= \case
-    Pure v -> fmap (v <$) $ view postBuildEvent
-    Free startE -> mdo
-      newFs <- switchPromptly startE $ fmapMaybe previewFree e'
-      e' <- accumNodes $ runFreeT <$> newFs
-      return $ fmapMaybe previewPure e'
-
+-- ** Operations to be used in seqHoldFree
 -- | Wait for the first occurrence
 waitEvent :: (Reflex t, Monad m) => Event t a -> FreeT (Event t) m a
 waitEvent = liftF
@@ -333,44 +279,106 @@ waitDynMaybe' dyn = (,fmapMaybe id $ updated dyn) <$> waitDynMaybe dyn
 waitDynMaybe_ :: (Reflex t, MonadSample t m) => Dynamic t (Maybe a) -> FreeT (Event t) m ()
 waitDynMaybe_ = void . waitDynMaybe
 
-previewPure :: FreeF f a b -> Maybe a
-previewPure (Pure a) = Just a
-previewPure _ = Nothing
+-- seqFree :: (MonadFix m, EventSequencer t im (NodeBuilder t m))
+--         => FreeT (Event t) im a -> NodeBuilder t m (Event t a)
+-- seqFree ft = runFreeT ft >>= \case
+--     Pure v -> postpone v
+--     Free startE -> mdo
+--       newFs <- switchPromptly startE $ fmapMaybe previewFree e'
+--       e' <- seqEvents $ runFreeT <$> newFs
+--       return $ fmapMaybe previewPure e'
 
 previewFree :: FreeF f a b -> Maybe (f b)
 previewFree (Free fb) = Just fb
 previewFree _ = Nothing
 
+previewPure :: FreeF f a b -> Maybe a
+previewPure (Pure a) = Just a
+previewPure _ = Nothing
+
+
+switchFreeT' :: (Reflex t, MonadHold t m)
+          => (forall x. m' x -> m x)
+          -> (forall x. m' x -> PushM t x)
+          -> FreeT (Event t) m' a -> m (FreeF (Event t) a a)
+switchFreeT' hoistM hoistPush ft = hoistM (runFreeT ft) >>= \case
+    Pure a -> return $ Pure a
+    Free e -> Free <$> switchPromptly never flattened
+      where flattened = flip pushAlways e $ switchFreeT' hoistPush hoistPush >=> \case
+                            Pure a -> return $ a <$ e
+                            Free ie -> return ie
+
+-- -- | Merge a deeply nested Event into a single Event
+switchFree :: (Reflex t, MonadHold t m, MonadReader (NodeBuilderEnv t) m)
+           => Free (Event t) a -> m (Event t a)
+switchFree f = do
+    let hoist (Identity x) = return x
+    switchFreeT' hoist hoist f >>= \case
+      Pure a -> postpone a
+      Free e -> return e
+
+-- switchFreeT :: NodeBuilder t m => FreeT (Event t) (PushM t) a -> m (Event t a)
+-- switchFreeT f = do
+--     e <- view postBuildEvent
+--     let e' = flip pushAlways e $ \_ -> switchFreeT' id id f >>= \case
+--           Pure a -> return $ a <$ e
+--           Free e -> return e
+--     switchPromptly never e'
+--
+--
+
+-- Attributes
+-- | Transforms a IsSettable attribute to a WOAttribute. This uses lazy read on the incoming Dynamic
+dyn :: (EventSequencer t im m, IsSettable w im a (attr w im b a), MonadReader (NodeBuilderEnv t) m)
+    => attr w im b a -> WOAttrib' w m (Dynamic t a)
+dyn attr = WOAttrib $ \w -> setter evtattr w <=< postponeCurrent
+  where evtattr = evt attr
+
+
+uDyn :: ( EventSequencer t im m, IsSettable w im a (attr w im b a), MonadReader (NodeBuilderEnv t) m
+        , Eq a )
+     => attr w im b a -> WOAttrib' w m (UniqDynamic t a)
+uDyn = (fromUniqDynamic >$<) . dyn
+
+evt :: (EventSequencer t im m, IsSettable w im a (attr w im b a))
+    => attr w im b a -> WOAttrib' w m (Event t a)
+evt attr = WOAttrib $ \w e -> forEvent_ e $ setter attr w
+
 
 -- | Locally modulate the ticks in the environment
-modulate :: (Reflex t, MonadHold t m, MonadFix m, Num a, Ord a) => a -> Event t a -> m (Event t a)
-modulate limit = mapAccumMaybe_ f (0, limit)
-    where
-      f (acc, l) d = let sum = acc + d in
-        if sum > l then (Just (0  , limit-(sum-l)) , Just sum)
-                   else (Just (sum, l            ) , Nothing )
-
 -- implement NodeBuilder instance so that we don't need to keep lifting...
-instance NodeBuilder t m => NodeBuilder t (AccStateT t f s m) where
+-- instance EventSequencer t im m => EventSequencer t im (AccStateT t f s m) where
+--     seqEventMaybe em = do
+--         d <- watch
+--         built <- lift . seqEvent $ flip pushAlways em $ \m -> do
+--                       t <- sample behT
+--                       return $ _runAccStateT m d [t]
+--         let et = (mergeWith composeMaybe . snd) <$> built
+--         behT :: Behavior t (Event t (s -> Maybe s)) <- hold (never :: Event t (s -> Maybe s)) et
+--         adjustMaybe $ switch behT
+--         return $ fmapMaybe fst built
+
+
     -- askRunWithActionsAsync = lift askRunWithActionsAsync
-    subNode n m = AccStateT . StateT $ \ts -> ReaderT $ \d -> subNode n (_runAccStateT m d ts)
-    holdNodes ma emb = do
-      d <- watch
-      ((a, tsZ), erb) <- lift $ holdNodes (_runAccStateT ma d []) $ ffor emb $ \mb -> _runAccStateT mb d []
-      let et = (mergeWith composeMaybe . snd) <$> erb
-          tz = mergeWith composeMaybe tsZ
-      switchPromptly tz et >>= adjustMaybe
-      return (a, fst <$> erb)
-    buildEvent em = mdo
-      d <- watch
-      built <- lift . buildEvent $ flip pushAlways em $ \m -> do
-                    t <- sample behT
-                    return $ _runAccStateT m d [t]
-      let et = (mergeWith composeMaybe . snd) <$> built
-      behT :: Behavior t (Event t (s -> Maybe s)) <- hold (never :: Event t (s -> Maybe s)) et
-      adjustMaybe $ switch behT
-      return $ fst <$> built
-    buildEvent_ = void . buildEvent
-    seqEventMaybe = lift . seqEventMaybe
-    seqEvent_ = lift . seqEvent_
-    seqEvent = lift . seqEvent
+    -- subNode n m = AccStateT . StateT $ \ts -> ReaderT $ \d -> subNode n (_runAccStateT m d ts)
+    -- holdNodes ma emb = do
+    --   d <- watch
+    --   ((a, tsZ), erb) <- lift $ holdNodes (_runAccStateT ma d []) $ ffor emb $ \mb -> _runAccStateT mb d []
+    --   let et = (mergeWith composeMaybe . snd) <$> erb
+    --       tz = mergeWith composeMaybe tsZ
+    --   switchPromptly tz et >>= adjustMaybe
+    --   return (a, fst <$> erb)
+    -- buildEvent em = mdo
+    --   d <- watch
+    --   built <- lift . buildEvent $ flip pushAlways em $ \m -> do
+    --                 t <- sample behT
+    --                 return $ _runAccStateT m d [t]
+    --   let et = (mergeWith composeMaybe . snd) <$> built
+    --   behT :: Behavior t (Event t (s -> Maybe s)) <- hold (never :: Event t (s -> Maybe s)) et
+    --   adjustMaybe $ switch behT
+    --   return $ fst <$> built
+    -- buildEvent_ = void . buildEvent
+    -- seqEventMaybe = lift . seqEventMaybe
+    -- seqEvent_ = lift . seqEvent_
+    -- seqEvent = lift . seqEvent
+    --

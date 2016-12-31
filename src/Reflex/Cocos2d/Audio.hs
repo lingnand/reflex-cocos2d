@@ -21,6 +21,7 @@ import Graphics.UI.Cocos2d.Audio
 import Reflex
 import Reflex.Host.Class
 import Reflex.Cocos2d.Class
+import Reflex.Cocos2d.Internal
 import Reflex.Cocos2d.Attributes
 
 data AudioStateCommand = AudioState_Play | AudioState_Pause | AudioState_Stop deriving (Show, Read)
@@ -33,14 +34,14 @@ playAudio filename props = do
     setProps au props
     return au
 
-getAudioFinishedEvent :: NodeGraph t m => AudioInstance -> m (Event t ())
+getAudioFinishedEvent :: MonadReflexCreateTrigger t m => AudioInstance -> NodeBuilder t m (Event t ())
 getAudioFinishedEvent id = do
     run <- view runWithActions
     newEventWithTrigger $ \tr -> do
       audioEngine_setFinishCallback id $ \_ _ -> run ([tr ==> ()], return ())
       return $ pure ()
 
-preloadAudio :: NodeGraph t m => String -> m (Event t Bool)
+preloadAudio :: MonadReflexCreateTrigger t m => String -> NodeBuilder t m (Event t Bool)
 preloadAudio filename = do
     run <- view runWithActions
     newEventWithTrigger $ \tr -> do

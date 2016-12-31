@@ -1,3 +1,6 @@
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -10,18 +13,26 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecursiveDo #-}
 module Reflex.Cocos2d.Internal
-    ( mainScene
+    (
+    -- , NodeBuilder
+    -- , runNodeBuilder
+      mainScene
+
     )
   where
 
 import Data.Dependent.Sum ((==>))
+import Data.Functor.Contravariant
 import Data.IORef
+import Data.Dependent.Sum (DSum (..))
+import Diagrams (V2)
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Ref
 import Control.Monad.Exception
+import Control.Monad.Trans.Free
 import Control.Lens
 import Reflex
 import Reflex.Host.Class
@@ -34,24 +45,7 @@ import Graphics.UI.Cocos2d.Scene
 import Graphics.UI.Cocos2d.Director
 
 import Reflex.Cocos2d.Class
-
--- spec
--- class ( ReflexHost t, MonadIO m, MonadIO (HostFrame t), MonadFix m, MonadHold t m
---       , MonadRef m, Ref m ~ Ref IO, MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
---       , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
---       , MonadReader (NodeTreeEnv t) m
---       , EventSequencer t (HostFrame t) m
---       , EventSequencer t m m -- sequence itself
---       , MonadException m, MonadAsyncException m
---       , MonadException (HostFrame t), MonadAsyncException (HostFrame t)
---       )
---       => NodeBuilder t m where
---     -- this one should be thread-safe
---     -- askRunWithActionsAsync :: m (([DSum (EventTrigger t) Identity], IO ()) -> IO ())
---
---     -- | Run a tree with the initial content and the updated content
---     -- whenever the event updates
---     holdNodes :: NodePtr n => m a -> Event t (m b) -> m (a, Event t b)
+import Reflex.Cocos2d.Attributes hiding (get)
 
 -- mostly borrowed from Reflex.Dom.Internal
 data BuilderState t m = BuilderState
@@ -59,177 +53,130 @@ data BuilderState t m = BuilderState
     , _builderFinalizers  :: m ()
     }
 
+emptyBuilderState :: forall t m. Monad m => BuilderState t m
+emptyBuilderState = BuilderState [] (return ())
 
--- TODO: fix this
 builderVoidActions ::
-  forall t.
-  Lens [Event t (m ())] [Event t (IO ())]
+  forall t m.
+  Lens (BuilderState t m) (BuilderState t m) [Event t (m ())] [Event t (m ())]
 builderVoidActions f (BuilderState act fin)
   = fmap (\ act' -> BuilderState act' fin) (f act)
 {-# INLINE builderVoidActions #-}
-
 builderFinalizers ::
-  forall t.
-  Lens (IO ()) (IO ())
+  forall t m.
+  Lens (BuilderState t m) (BuilderState t m) (m ()) (m ())
 builderFinalizers f (BuilderState act fin)
   = fmap (\ fin' -> BuilderState act fin') (f fin)
-{-# INLINE builderVoidActions #-}
+{-# INLINE builderFinalizers #-}
 
-newtype NodeBuilder t m a = NodeBuilder (ReaderT (NodeBuilderEnv t) (StateT (BuilderState t) m) a)
+newtype Builder t m a = Builder (ReaderT (NodeBuilderEnv t) (StateT (BuilderState t m) m) a)
+    deriving ( Monad, Functor, Applicative
+             , MonadReader (NodeBuilderEnv t)
+             , MonadFix, MonadIO
+             , MonadException, MonadAsyncException
+             , MonadSample t, MonadHold t
+             , MonadReflexCreateTrigger t, MonadSubscribeEvent t )
 
-deriving instance Monad m => MonadReader (NodeBuilderEnv t) (NodeBuilder t m)
-deriving instance Functor m => Functor (NodeBuilder t m)
-deriving instance Monad m => Applicative (NodeBuilder t m)
-deriving instance Monad m => Monad (NodeBuilder t m)
-deriving instance MonadFix m => MonadFix (NodeBuilder t m)
-deriving instance MonadIO m => MonadIO (NodeBuilder t m)
-deriving instance MonadException m => MonadException (NodeBuilder t m)
-deriving instance MonadAsyncException m => MonadAsyncException (NodeBuilder t m)
+instance MonadTrans (Builder t) where
+    lift = Builder . lift . lift
 
-addFinalizer :: m () -> NodeBuilder t m ()
-addFinalizer a = builderFinalizers %= (a:)
+instance MonadRef m => MonadRef (Builder t m) where
+    type Ref (Builder t m) = Ref m
+    newRef = lift . newRef
+    readRef = lift . readRef
+    writeRef r = lift . writeRef r
 
-runBuilder
-  :: NodeBuilder t m a -> NodeBuilderEnv t -> BuilderState t -> m (a, BuilderState t)
-runBuilder (NodeBuilder builder) env = runStateT $ runReaderT builder env
+-- run builder with a given env and empty state
+runBuilder :: Monad m
+           => Builder t m a -> NodeBuilderEnv t -> m (a, BuilderState t m)
+runBuilder (Builder builder) env =
+    runStateT (runReaderT builder env) emptyBuilderState
 
-instance (Reflex t, MonadSample t (HostFrame t)) => MonadSample t (NodeBuilder t) where
-    sample = NodeBuilder . lift . lift . sample
-
-instance (Reflex t, MonadHold t (HostFrame t)) => MonadHold t (NodeBuilder t) where
-    hold v0 = NodeBuilder . lift . lift . hold v0
-    holdDyn v0 = NodeBuilder . lift . lift . holdDyn v0
-    holdIncremental v0 = NodeBuilder . lift . lift . holdIncremental v0
-
-instance MonadReflexCreateTrigger t (HostFrame t) => MonadReflexCreateTrigger t (NodeBuilder t) where
-    newEventWithTrigger = NodeBuilder . lift . lift . newEventWithTrigger
-    newFanEventWithTrigger = NodeBuilder . lift . lift . newFanEventWithTrigger
-
-instance (Reflex t, MonadSubscribeEvent t (HostFrame t)) => MonadSubscribeEvent t (NodeBuilder t) where
-    subscribeEvent = NodeBuilder . lift . lift . subscribeEvent
-
-instance MonadRef (HostFrame t) => MonadRef (NodeBuilder t) where
-    type Ref (NodeBuilder t) = Ref (HostFrame t)
-    newRef = NodeBuilder . lift . lift . newRef
-    readRef = NodeBuilder . lift . lift . readRef
-    writeRef r = NodeBuilder . lift . lift . writeRef r
-
-instance EventSequencer t IO (NodeBuilder t) where
-    seqEvent_ e = NodeBuilder $ builderVoidActions %= (e:)
+instance {-# OVERLAPPING #-}
+    (Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m, MonadIO m)
+    => EventSequencer t m (Builder t m) where
+    seqEvent_ e = Builder $ builderVoidActions %= (e:)
     seqEventMaybe e = do
       run <- view runWithActions
       (eResult, trigger) <- newEventWithTriggerRef
       forEvent_ e $ \o -> do
           o >>= \case
-            Just x -> readRef trigger >>= mapM_ (\t -> run ([t ==> x], return ()))
-            _ -> return ()
-      return eResult
-
-instance EventSequencer t (NodeBuilder t) (NodeBuilder t) where
-    seqEvent_ e = do
-        vas <- NodeBuilder $ use builderVoidActions <* (builderVoidActions .= [])
-        result0 <- subBuilder p' child0
-        vas' <- NodeBuilder $ use builderVoidActions <* (builderVoidActions .= vas)
-        let voidAction0 = mergeWith (flip (>>)) vas'
-        (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
-        runEvent_ =<< switchPromptly voidAction0 (snd <$> newChildBuilt)
-        builderEnv <- ask
-        let run = builderEnv ^. runWithActions
-        onEvent_ newChild $ \(NodeBuilder g) -> do
-            liftIO $ node_removeAllChildren p'
-            (postBuildE, postBuildTr) <- newEventWithTriggerRef
-            let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
-            (r, BuilderState vas)
-              <- runStateT
-                  (runReaderT g $ builderEnv & parent .~ p'
-                                           & postBuildEvent .~ postBuildE)
-                  (BuilderState [])
-            liftIO $ readRef newChildBuiltTriggerRef
-                      >>= mapM_ (\t -> run ([t ==> (r, mergeWith (flip (>>)) vas)], firePostBuild))
-        return (result0, fst <$> newChildBuilt)
-    seqEventMaybe e = undefined
-
-instance EventSequenceHolder t (NodeBuilder t) (NodeBuilder t) where
-    pass...
-
-
-instance ( MonadIO (HostFrame t), Functor (HostFrame t)
-         , MonadRef (HostFrame t), Ref (HostFrame t) ~ Ref IO
-         , MonadException (HostFrame t), MonadAsyncException (HostFrame t)
-         , ReflexHost t ) => NodeBuilder t (NodeBuilder t) where
-    subBuilder n = local (parent .~ toNode n)
-    holdBuilder p child0 newChild = do
-        let p' = toNode p
-        vas <- NodeBuilder $ use builderVoidActions <* (builderVoidActions .= [])
-        result0 <- subBuilder p' child0
-        vas' <- NodeBuilder $ use builderVoidActions <* (builderVoidActions .= vas)
-        let voidAction0 = mergeWith (flip (>>)) vas'
-        (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
-        runEvent_ =<< switchPromptly voidAction0 (snd <$> newChildBuilt)
-        builderEnv <- ask
-        let run = builderEnv ^. runWithActions
-        onEvent_ newChild $ \(NodeBuilder g) -> do
-            liftIO $ node_removeAllChildren p'
-            (postBuildE, postBuildTr) <- newEventWithTriggerRef
-            let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
-            (r, BuilderState vas)
-              <- runStateT
-                  (runReaderT g $ builderEnv & parent .~ p'
-                                           & postBuildEvent .~ postBuildE)
-                  (BuilderState [])
-            liftIO $ readRef newChildBuiltTriggerRef
-                      >>= mapM_ (\t -> run ([t ==> (r, mergeWith (flip (>>)) vas)], firePostBuild))
-        return (result0, fst <$> newChildBuilt)
-    buildEvent = undefined
-    -- buildEvent newChild = do
-    --     (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
-    --     let onNewChildBuilt :: Event t (HostFrame t ()) -> (a, [Event t (HostFrame t ())]) -> Maybe (Event t (HostFrame t ()))
-    --         onNewChildBuilt _ (_, []) = Nothing
-    --         onNewChildBuilt acc (_, vas) = Just $ mergeWith (>>) (acc:reverse vas)
-    --     runEvent_ . switch =<< accumMaybe onNewChildBuilt (never :: Event t (HostFrame t ())) newChildBuilt
-    --     builderEnv <- ask
-    --     let run = builderEnv ^. runWithActions
-    --     onEvent_ newChild $ \(NodeBuilder g) -> do
-    --         (postBuildE, postBuildTr) <- newEventWithTriggerRef
-    --         let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
-    --         (r, BuilderState vas)
-    --           <- runStateT
-    --               (runReaderT g $ builderEnv & postBuildEvent .~ postBuildE)
-    --               (BuilderState [])
-    --         liftIO $ readRef newChildBuiltTriggerRef
-    --                   >>= mapM_ (\t -> run ([t ==> (r, vas)], firePostBuild))
-    --     return $ fst <$> newChildBuilt
-    buildEvent_ = void . buildEvent
-    runEvent_ a = NodeBuilder $ builderVoidActions %= (a:)
-    runEventMaybe e = do
-      run <- view runWithActions
-      (eResult, trigger) <- newEventWithTriggerRef
-      onEvent_ e $ \o -> do
-          o >>= \case
             Just x -> liftIO $ readRef trigger >>= mapM_ (\t -> run ([t ==> x], return ()))
             _ -> return ()
       return eResult
-    runEvent = runEventMaybe . fmap (Just <$>)
-    -- | Generate a new Event that delays the input Event by some frame
-    -- (normally fired in the immediate next frame); similar to
-    -- setTimeout(0)
-    -- this works because it forces a nested runWithActions call which has
-    -- to be pushed pending and only fired when the current runWithActions
-    -- finishes
-    -- delay' = runEvent . fmap return
-    -- askRunWithActionsAsync = NodeBuilder $ do
-    --   runWithActions <- view builderRunWithActions
-    --   sch <- liftIO $ director_getInstance >>= director_getScheduler
-    --   return $ scheduler_performFunctionInCocosThread sch . runWithActions
+
+instance {-# INCOHERENT #-}
+    (Reflex t, EventSequencer t m (Builder t m), MonadIO m)
+    => EventSequencer t IO (Builder t m) where
+    seqEvent_ = seqEvent_ . fmap (liftIO :: IO a -> m a)
+    seqEventMaybe = seqEventMaybe . fmap (liftIO :: IO a -> m a)
+
+instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
+         , MonadIO m, MonadFix m, MonadHold t m )
+        => EventSequencer t (Builder t m) (Builder t m) where
+    seqEventMaybe e = do
+        (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
+        let onNewChildBuilt :: Event t (m ()) -> (a, [Event t (m ())]) -> Maybe (Event t (m ()))
+            onNewChildBuilt _ (_, []) = Nothing
+            onNewChildBuilt acc (_, vas) = Just $ mergeWith (>>) (acc:reverse vas)
+        seqEvent_ . switch =<< accumMaybe onNewChildBuilt (never :: Event t (m ())) newChildBuilt
+        builderEnv <- ask
+        let run = builderEnv ^. runWithActions
+        forEvent_ e $ \bd -> do
+            (postBuildE, postBuildTr) <- newEventWithTriggerRef
+            let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
+            (r, builderState) <- runBuilder bd (builderEnv & postBuildEvent .~ postBuildE)
+            liftIO $ readRef newChildBuiltTriggerRef
+                      >>= mapM_ (\t -> run ([t ==> (r, builderState^.builderVoidActions)], firePostBuild))
+        return $ fmapMaybe fst newChildBuilt
+
+instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
+         , MonadIO m, MonadFix m, MonadHold t m )
+        => EventSequenceHolder t (Builder t m) (Builder t m) where
+    seqHold init e = do
+        p <- asks $ view parent
+        oldState <- Builder $ get <* put (BuilderState [] (return ()))
+        result0 <- init
+        state <- Builder $ get <* put oldState
+        let voidAction0 = mergeWith (flip (>>)) (state^.builderVoidActions)
+        (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
+        seqEvent_ <=< switchPromptly voidAction0 $
+              mergeWith (flip (>>)) . view (_2.builderVoidActions) <$> newChildBuilt
+        finalizerBeh <- hold (state^.builderFinalizers) (view (_2.builderFinalizers) <$> newChildBuilt)
+        builderEnv <- ask
+        let run = builderEnv ^. runWithActions
+        forEvent_ e $ \bd -> do
+            finalizer <- sample finalizerBeh
+            finalizer
+            (postBuildE, postBuildTr) <- newEventWithTriggerRef
+            let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
+            (r, builderState) <- runBuilder bd $
+                builderEnv & parent .~ p
+                           & postBuildEvent .~ postBuildE
+            liftIO $ readRef newChildBuiltTriggerRef
+                    >>= mapM_ (\t -> run ([t ==> (r, builderState)], firePostBuild))
+        return (result0, fst <$> newChildBuilt)
+    seqDyn d = do
+        (_, e) <- seqHold (return ()) =<< postponeCurrent d
+        return e
+
+instance
+  ( Reflex t
+  , MonadReflexCreateTrigger t host, MonadSubscribeEvent t host
+  , MonadSample t host, MonadHold t host, MonadFix host
+  , MonadRef host, Ref host ~ Ref IO
+  , MonadIO host
+  ) => NodeBuilder t host (Builder t host) where
+    addFinalizer a = Builder $ builderFinalizers %= (a >>)
 
 -- | Construct a new scene with a NodeBuilder
-mainScene :: NodeBuilder Spider a -> IO ()
-mainScene (NodeBuilder g) = do
+mainScene :: Builder Spider (HostFrame Spider) a -> IO a
+mainScene bd = do
     scene <- scene_create
     dtor <- director_getInstance
     winSize <- decode =<< director_getWinSize dtor
     recRef <- newIORef (False, [], []) -- (running, saved_dm)
-    runSpiderHost $ mdo
+    result <- runSpiderHost $ mdo
         let processTrigger [] [] = writeIORef recRef (False, [], [])
             processTrigger [] aft = do
               writeIORef recRef (True, [], [])
@@ -257,11 +204,29 @@ mainScene (NodeBuilder g) = do
               (\ss -> runWithActions ([tr ==> ss], return ()))
               target 0 False "ticks"
             return $ scheduler_unschedule sch "ticks" target
-        BuilderState vas
-          <- runHostFrame $
-              execStateT
-                (runReaderT g (NodeBuilderEnv (toNode scene) winSize postBuildE ticks runWithActions))
-                (BuilderState [])
-        voidActionHandle <- subscribeEvent $ mergeWith (flip (>>)) vas
+        (result, builderState)
+          <- runHostFrame . runBuilder bd $ NodeBuilderEnv (toNode scene) winSize postBuildE ticks runWithActions
+        voidActionHandle <- subscribeEvent . mergeWith (flip (>>)) $ builderState^.builderVoidActions
         liftIO $ readRef postBuildTr >>= mapM_ (\t -> runWithActions ([t ==> ()], return ()))
+        return result
     director_getInstance >>= flip director_runWithScene scene
+    return result
+
+-- | Similar to `dyn`, but applies strict read
+-- XXX: nasty constraints to allow 'c' to be instantiated as different types within the function
+-- dyn' :: ( BuilderHostFrame t m
+--         , IsSettable w (HostFrame t) a (attr w (HostFrame t) b a)
+--         , IsSettable w m a (attr w m b a) )
+--      => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
+--      -> WOAttrib' w m (Dynamic t a)
+-- dyn' attr = WOAttrib $ \w d -> do
+--               setter attr w =<< sample (current d)
+--               let WOAttrib es = evt attr
+--               es w (updated d)
+-- uDyn' :: ( BuilderHostFrame t m
+--          , IsSettable w (HostFrame t) a (attr w (HostFrame t) b a)
+--          , IsSettable w m a (attr w m b a)
+--          , Eq a )
+--       => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
+--       -> WOAttrib' w m (UniqDynamic t a)
+-- uDyn' attr = fromUniqDynamic >$< dyn' attr

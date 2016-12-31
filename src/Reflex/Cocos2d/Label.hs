@@ -33,18 +33,15 @@ import Graphics.UI.Cocos2d.Common
 import Graphics.UI.Cocos2d.Node
 import Graphics.UI.Cocos2d.Label
 
-import Reflex.Cocos2d.Class
+import Reflex.Cocos2d.Internal
 import Reflex.Cocos2d.Attributes
+import Reflex.Cocos2d.Node
 import Reflex.Cocos2d.Types
 
-label :: NodeGraph t m => [Prop Label m] -> m Label
-label props = do
-    l <- liftIO label_create
-    setProps l props
-    view parent >>= liftIO . flip node_addChild l
-    return l
+label :: MonadIO m => [Prop Label (NodeBuilder t m)] -> NodeBuilder t m Label
+label = addNewChild label_create
 
-label_ :: NodeGraph t m => [Prop Label m] -> m ()
+label_ :: MonadIO m => [Prop Label (NodeBuilder t m)] -> NodeBuilder t m ()
 label_ = void . label
 
 ---- Attrs ----

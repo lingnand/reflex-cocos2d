@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -94,6 +95,7 @@ import Reflex
 import Reflex.Host.Class
 import Reflex.Cocos2d.Attributes
 import Reflex.Cocos2d.Class
+import Reflex.Cocos2d.Internal
 
 class Maskable a where
     toMask :: a -> Word64
@@ -192,13 +194,14 @@ instance SpacePtr a s => SpacePtr a (s, x) where
 type SpaceStep = Time
 
 -- | create and run a space at frame rate
-space :: NodeGraph t m => [Prop (Space a) m] -> m (Space a, Event t SpaceStep)
+space :: MonadBuilderHost t m
+      => [Prop (Space a) (NodeBuilder t m)] -> NodeBuilder t m (Space a, Event t SpaceStep)
 space props = do
     ts <- view frameTicks
     sp <- liftIO H.newSpace
     let wrapped = SPWrap sp
     setProps wrapped props
-    fmap (wrapped,) . onEvent ts $ \dt -> liftIO $ do
+    fmap (wrapped,) . forEvent ts $ \dt -> do
       H.step sp $ realToFrac dt
       return dt
 
@@ -218,7 +221,7 @@ collisionEnded f (CollisionEvents began ended)
       (\ ended' -> CollisionEvents began ended') (f ended)
 {-# INLINE collisionEnded #-}
 
-getCollisionEvents :: NodeGraph t m => Space a -> m (CollisionEvents t a)
+getCollisionEvents :: MonadBuilderHost t m => Space a -> NodeBuilder t m (CollisionEvents t a)
 getCollisionEvents (SPWrap sp) = do
     (eBegin, trBegin) <- newEventWithTriggerRef
     (eSeparate, trSeparate) <- newEventWithTriggerRef

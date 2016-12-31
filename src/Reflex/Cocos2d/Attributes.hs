@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -15,15 +16,12 @@ module Reflex.Cocos2d.Attributes
     , WOAttrib(..)
     , WOAttrib'
     , Prop(..)
+    , IsSettable(..)
+    , IsGettable(..)
     , mapAttrib
     , get
     , setProps
     , hoistA
-    , dyn
-    , dyn'
-    , uDyn
-    , uDyn'
-    , evt
     , divide
     , divided
     , choose
@@ -44,10 +42,8 @@ import Data.Colour
 import Data.Functor.Contravariant
 import Diagrams (Point(..), V2(..), P2, (^&), _x, _y, Angle)
 import Control.Lens hiding (chosen, transform)
-import Control.Monad.Trans
 import Reflex.Host.Class
 import Reflex
-import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Types
 
 import Graphics.UI.Cocos2d.Common
@@ -110,43 +106,6 @@ hoistA :: (forall x. f x -> g x)  -> Attrib w f b a -> Attrib w g b a
 hoistA trans (Attrib getter setter) = Attrib (trans . getter) (\w -> trans . setter w)
 
 ---- combinators ----
-
--- | Transforms a IsSettable attribute to a WOAttribute. This uses lazy read on the incoming Dynamic
-dyn :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a))
-    => attr w (HostFrame t) b a -> WOAttrib' w m (Dynamic t a)
-dyn attr = WOAttrib $ \w d -> do
-            e <- view postBuildEvent
-            runEvent_ $ (setter attr w =<< sample (current d)) <$ e
-            let WOAttrib es = evt attr
-            es w (updated d)
-
--- | Similar to `dyn`, but applies strict read
--- XXX: nasty constraints to allow 'c' to be instantiated as different types within the function
-dyn' :: ( NodeGraph t m
-        , IsSettable w (HostFrame t) a (attr w (HostFrame t) b a)
-        , IsSettable w m a (attr w m b a) )
-     => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
-     -> WOAttrib' w m (Dynamic t a)
-dyn' attr = WOAttrib $ \w d -> do
-              setter attr w =<< sample (current d)
-              let WOAttrib es = evt attr
-              es w (updated d)
-
-uDyn :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a), Eq a)
-     => attr w (HostFrame t) b a -> WOAttrib' w m (UniqDynamic t a)
-uDyn = (fromUniqDynamic >$<) . dyn
-
-uDyn' :: ( NodeGraph t m
-         , IsSettable w (HostFrame t) a (attr w (HostFrame t) b a)
-         , IsSettable w m a (attr w m b a)
-         , Eq a )
-      => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
-      -> WOAttrib' w m (UniqDynamic t a)
-uDyn' attr = fromUniqDynamic >$< dyn' attr
-
-evt :: (NodeGraph t m, IsSettable w (HostFrame t) a (attr w (HostFrame t) b a))
-    => attr w (HostFrame t) b a -> WOAttrib' w m (Event t a)
-evt attr = WOAttrib $ \w e -> onEvent_ e $ setter attr w
 
 -- degenerative combinators following Contravariant.Divisible
 divide :: (Monad m, IsSettable w m b attrb, IsSettable w m c attrc)

@@ -11,22 +11,23 @@ cabal-version:       >=1.10
 
 
 library
-  exposed-modules:     Reflex.Cocos2d
-                     , Reflex.Cocos2d.Class
-                     , Reflex.Cocos2d.Types
-                     , Reflex.Cocos2d.Attributes
-                     , Reflex.Cocos2d.Node
-                     , Reflex.Cocos2d.Event
-                     , Reflex.Cocos2d.Label
-                     , Reflex.Cocos2d.Widget
-                     , Reflex.Cocos2d.Audio
-                     , Reflex.Cocos2d.CocoStudio
-                     , Reflex.Cocos2d.Chipmunk
+  exposed-modules:     Reflex.Cocos2d.Class
+                       -- Reflex.Cocos2d
                      , Reflex.Cocos2d.Internal
-                     , Reflex.Extra
-                     , Reflex.State
+                     -- , Reflex.Cocos2d.Node
+                     -- , Reflex.Cocos2d.Types
+                     -- , Reflex.Cocos2d.Attributes
+                     -- , Reflex.Cocos2d.Event
+                     -- , Reflex.Cocos2d.Label
+                     -- , Reflex.Cocos2d.Widget
+                     -- , Reflex.Cocos2d.Audio
+                     -- , Reflex.Cocos2d.CocoStudio
+                     -- , Reflex.Cocos2d.Chipmunk
+                     -- , Reflex.Extra
+                     -- , Reflex.State
   -- other-modules:       
-  ghc-options:         -Wall -fno-warn-orphans -fno-warn-name-shadowing
+  ghc-options:         -w -fprint-potential-instances
+  -- -Wall -fno-warn-orphans -fno-warn-name-shadowing
   -- other-extensions:    
   
   build-depends:       base >=4.8 && <4.10

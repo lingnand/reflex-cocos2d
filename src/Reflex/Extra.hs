@@ -7,6 +7,7 @@ module Reflex.Extra
     , dropWhileE
     , breakE
     , dynMaybe
+    , modulate
     , stack
     , distribute
     )
@@ -48,6 +49,13 @@ breakE f e = do
 dynMaybe :: (Reflex t, MonadHold t m)
          => Event t a -> m (Dynamic t (Maybe a))
 dynMaybe e = holdDyn Nothing $ Just <$> e
+
+modulate :: (Reflex t, MonadHold t m, MonadFix m, Num a, Ord a) => a -> Event t a -> m (Event t a)
+modulate limit = mapAccumMaybe_ f (0, limit)
+    where
+      f (acc, l) d = let sum = acc + d in
+        if sum > l then (Just (0  , limit-(sum-l)) , Just sum)
+                   else (Just (sum, l            ) , Nothing )
 
 -- | Simple stack that responds to Events
 stack :: (Reflex t, MonadHold t m, MonadFix m)
