@@ -26,22 +26,20 @@ module Reflex.Cocos2d.Label
 import Diagrams (V2(..))
 import Control.Monad
 import Control.Monad.Trans
-import Control.Lens
 
 import Foreign.Hoppy.Runtime (Decodable(..))
 import Graphics.UI.Cocos2d.Common
-import Graphics.UI.Cocos2d.Node
 import Graphics.UI.Cocos2d.Label
 
-import Reflex.Cocos2d.Internal
+import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Attributes
 import Reflex.Cocos2d.Node
 import Reflex.Cocos2d.Types
 
-label :: MonadIO m => [Prop Label (NodeBuilder t m)] -> NodeBuilder t m Label
+label :: NodeBuilder t host m => [Prop Label m] -> m Label
 label = addNewChild label_create
 
-label_ :: MonadIO m => [Prop Label (NodeBuilder t m)] -> NodeBuilder t m ()
+label_ :: NodeBuilder t host m => [Prop Label m] -> m ()
 label_ = void . label
 
 ---- Attrs ----

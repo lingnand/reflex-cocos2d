@@ -48,7 +48,13 @@ import Data.Maybe
 ---- generalization: AccStateT
 ---- the input is always the same - like a reader
 newtype AccStateT t f s m a = AccStateT (StateT [Event t (s -> Maybe s)] (ReaderT (f s) m) a)
-  deriving (Functor, Applicative, Monad, MonadFix, MonadIO, MonadException, MonadAsyncException)
+  deriving
+    ( Functor, Applicative, Monad
+    , MonadFix, MonadIO
+    , MonadException, MonadAsyncException
+    , MonadSample t, MonadHold t
+    , MonadReflexCreateTrigger t, MonadSubscribeEvent t
+    )
 
 type DynStateT t = AccStateT t (Dynamic t)
 type EventStateT t = AccStateT t (Event t)
@@ -109,21 +115,21 @@ instance MonadReader r m => MonadReader r (AccStateT t f s m) where
     local f m = AccStateT . StateT $ \ts -> ReaderT $ \d -> local f (_runAccStateT m d ts)
     reader = lift . reader
 
-instance MonadSample t m => MonadSample t (AccStateT t f s m) where
-    sample = lift . sample
-
-instance MonadHold t m => MonadHold t (AccStateT t f s m) where
-    hold v0 = lift . hold v0
-    holdDyn v0 = lift . holdDyn v0
-    holdIncremental v0 = lift . holdIncremental v0
-
-instance MonadReflexCreateTrigger t m => MonadReflexCreateTrigger t (AccStateT t f s m) where
-    newEventWithTrigger = lift . newEventWithTrigger
-    newFanEventWithTrigger = lift . newFanEventWithTrigger
-
-instance MonadSubscribeEvent t m => MonadSubscribeEvent t (AccStateT t f s m) where
-    subscribeEvent = lift . subscribeEvent
-
+-- instance MonadSample t m => MonadSample t (AccStateT t f s m) where
+--     sample = lift . sample
+--
+-- instance MonadHold t m => MonadHold t (AccStateT t f s m) where
+--     hold v0 = lift . hold v0
+--     holdDyn v0 = lift . holdDyn v0
+--     holdIncremental v0 = lift . holdIncremental v0
+--
+-- instance MonadReflexCreateTrigger t m => MonadReflexCreateTrigger t (AccStateT t f s m) where
+--     newEventWithTrigger = lift . newEventWithTrigger
+--     newFanEventWithTrigger = lift . newFanEventWithTrigger
+--
+-- instance MonadSubscribeEvent t m => MonadSubscribeEvent t (AccStateT t f s m) where
+--     subscribeEvent = lift . subscribeEvent
+--
 instance MonadRef m => MonadRef (AccStateT t f s m) where
     type Ref (AccStateT t f s m) = Ref m
     newRef = lift . newRef

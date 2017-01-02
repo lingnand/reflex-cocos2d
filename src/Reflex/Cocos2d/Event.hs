@@ -99,7 +99,6 @@ import Graphics.UI.Cocos2d.Director
 import Graphics.UI.Cocos2d.Texture
 
 import Reflex.Cocos2d.Class
-import Reflex.Cocos2d.Internal
 import Reflex.Cocos2d.Types
 
 -- Event Packages
@@ -261,9 +260,7 @@ keyReleased f (KeyboardEvents pressed released)
 
 -- Event listeners
 -- We generally put the listener to priority > scene graph (negative numbers)
-getMouseEvents
-  :: (Reflex t, MonadReflexCreateTrigger t m, MonadIO m)
-  => NodeBuilder t m (MouseEvents t)
+getMouseEvents :: NodeBuilder t host m => m (MouseEvents t)
 getMouseEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -279,9 +276,7 @@ getMouseEvents = do
                 <*> newEventWithTrigger (handleTrigger eventListenerMouse_onMouseMove_set)
                 <*> newEventWithTrigger (handleTrigger eventListenerMouse_onMouseScroll_set)
 
-getTouchEvents
-  :: (Reflex t, MonadReflexCreateTrigger t m, MonadIO m)
-  => NodeBuilder t m (TouchEvents t)
+getTouchEvents :: NodeBuilder t host m => m (TouchEvents t)
 getTouchEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -300,9 +295,7 @@ getTouchEvents = do
                 <*> newEventWithTrigger (handleTrigger eventListenerTouchOneByOne_onTouchEnded_set)
                 <*> newEventWithTrigger (handleTrigger eventListenerTouchOneByOne_onTouchCancelled_set)
 
-getMultiTouchEvents
-  :: (Reflex t, MonadReflexCreateTrigger t m, MonadIO m)
-  => NodeBuilder t m (MultiTouchEvents t)
+getMultiTouchEvents :: NodeBuilder t host m => m (MultiTouchEvents t)
 getMultiTouchEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -319,9 +312,7 @@ getMultiTouchEvents = do
                      <*> newEventWithTrigger (handleTrigger eventListenerTouchAllAtOnce_onTouchesEnded_set)
                      <*> newEventWithTrigger (handleTrigger eventListenerTouchAllAtOnce_onTouchesCancelled_set)
 
-getKeyboardEvents
-  :: (Reflex t, MonadReflexCreateTrigger t m, MonadIO m)
-  => NodeBuilder t m (KeyboardEvents t)
+getKeyboardEvents :: NodeBuilder t host m => m (KeyboardEvents t)
 getKeyboardEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -333,9 +324,7 @@ getKeyboardEvents = do
     KeyboardEvents <$> newEventWithTrigger (handleTrigger eventListenerKeyboard_onKeyPressed_set)
                    <*> newEventWithTrigger (handleTrigger eventListenerKeyboard_onKeyReleased_set)
 
-getAccelerations
-  :: (Reflex t, MonadReflexCreateTrigger t m, MonadIO m)
-  => NodeBuilder t m (Event t Acceleration)
+getAccelerations :: NodeBuilder t host m => m (Event t Acceleration)
 getAccelerations = do
     run <- view runWithActions
     newEventWithTrigger $ \tr -> do
@@ -410,8 +399,7 @@ accumKeysDown (KeyboardEvents pressedE releasedE) = do
 
 -- | NOTE: we can't return the texture because it's an autoreleased object
 loadTexture
-  :: (Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m, MonadIO m)
-  => String -> NodeBuilder t m (Event t ())
+  :: NodeBuilder t host m => String -> m (Event t ())
 loadTexture path = do
     run <- view runWithActions
     -- Since we are not sure if the user would subscribe to the resulting event, we can't just use

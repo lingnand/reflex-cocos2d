@@ -42,8 +42,6 @@ import Data.Colour
 import Data.Functor.Contravariant
 import Diagrams (Point(..), V2(..), P2, (^&), _x, _y, Angle)
 import Control.Lens hiding (chosen, transform)
-import Reflex.Host.Class
-import Reflex
 import Reflex.Cocos2d.Types
 
 import Graphics.UI.Cocos2d.Common

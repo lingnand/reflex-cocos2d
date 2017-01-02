@@ -1,4 +1,3 @@
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -95,7 +94,6 @@ import Reflex
 import Reflex.Host.Class
 import Reflex.Cocos2d.Attributes
 import Reflex.Cocos2d.Class
-import Reflex.Cocos2d.Internal
 
 class Maskable a where
     toMask :: a -> Word64
@@ -194,11 +192,12 @@ instance SpacePtr a s => SpacePtr a (s, x) where
 type SpaceStep = Time
 
 -- | create and run a space at frame rate
-space :: MonadBuilderHost t m
-      => [Prop (Space a) (NodeBuilder t m)] -> NodeBuilder t m (Space a, Event t SpaceStep)
+space :: NodeBuilder t host m
+      => [Prop (Space a) m] -> m (Space a, Event t SpaceStep)
 space props = do
     ts <- view frameTicks
     sp <- liftIO H.newSpace
+    addFinalizer  . liftIO $ H.freeSpace sp
     let wrapped = SPWrap sp
     setProps wrapped props
     fmap (wrapped,) . forEvent ts $ \dt -> do
@@ -221,7 +220,7 @@ collisionEnded f (CollisionEvents began ended)
       (\ ended' -> CollisionEvents began ended') (f ended)
 {-# INLINE collisionEnded #-}
 
-getCollisionEvents :: MonadBuilderHost t m => Space a -> NodeBuilder t m (CollisionEvents t a)
+getCollisionEvents :: NodeBuilder t host m => Space a -> m (CollisionEvents t a)
 getCollisionEvents (SPWrap sp) = do
     (eBegin, trBegin) <- newEventWithTriggerRef
     (eSeparate, trSeparate) <- newEventWithTriggerRef
@@ -266,20 +265,31 @@ fanCollisionsByBody = fanMap . fmap trans
           | (s1, s2) <- [(sa, sb), (sb, sa)]
           ]
 
+safeAdd :: (SpacePtr a sp, H.Entity e, MonadIO m) => sp -> e -> m ()
+safeAdd sp e = liftIO $ H.inSpace e >>= \case
+    True -> return ()
+    _ -> H.spaceAdd (toSpace sp) e
+
+safeRemove :: (SpacePtr a sp, H.Entity e, MonadIO m) => sp -> e -> m ()
+safeRemove sp e = liftIO $ H.inSpace e >>= \case
+    True -> H.spaceRemove (toSpace sp) e
+    _ -> return ()
 
 -- | NOTE: to add the body to the space, you have to pass in the active := true prop
-body :: MonadIO m
+body :: NodeBuilder t host m
      => Space a
      -> [Prop (Space a, Body a) m]
      -> m (Body a)
 body wsp props = do
     bd <- liftIO $ H.newBody (1/0) (1/0)
+    -- add a finalizer so that if the body is still in the space, remove it
     let wrapped = BWrap bd
+    addFinalizer $ safeRemove wsp wrapped
     setProps (wsp, wrapped) props
     return wrapped
 
 -- | NOTE: to add the shape to the space, you have to pass in the active := true prop
-shape :: MonadIO m
+shape :: NodeBuilder t host m
       => Space a
       -> Body a
       -> H.Geometry Float
@@ -294,6 +304,9 @@ shape wsp (BWrap b) geo props = do
             0                    -- categoryMask
             maxBound             -- collisionMask
     let wrapped = SWrap sh
+    -- XXX: removing shapes one by one with recompute is potentially
+    -- expensive...?
+    addFinalizer $ safeRemove wsp wrapped
     setProps (wsp, wrapped) props
     return wrapped
 
@@ -373,15 +386,9 @@ torque = liftStateVarToFloat $ H.torque . toBody
 -- whether the body is added to the space
 active :: (MonadIO m, H.Entity e, SpacePtr a e) => Attrib' e m Bool
 active = Attrib getter setter
-  where setter p act =
-          let sp = toSpace p
-          in case act of
-            True -> liftIO $ H.inSpace p >>= \case
-                True -> return ()
-                _ -> H.spaceAdd sp p
-            False -> liftIO $ H.inSpace p >>= \case
-                True -> H.spaceRemove sp p
-                _ -> return ()
+  where setter p act = case act of
+            True -> safeAdd p p
+            False -> safeRemove p p
         getter = liftIO . H.inSpace
 
 -- attributes for shapes

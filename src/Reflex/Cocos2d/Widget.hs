@@ -59,7 +59,6 @@ import Reflex
 import Reflex.Host.Class
 import Reflex.Cocos2d.Node
 import Reflex.Cocos2d.Class
-import Reflex.Cocos2d.Internal
 import Reflex.Cocos2d.Attributes
 import Reflex.Cocos2d.Types
 
@@ -144,8 +143,8 @@ instance HasWidgetTouchEvents (WidgetEvents t) t where
     widgetTouchEvents = weToWTouchEvents
 
 getWidgetTouchEvents ::
-  (Reflex t, MonadReflexCreateTrigger t m, MonadIO m, WidgetPtr w)
-  => w -> NodeBuilder t m (WidgetTouchEvents t)
+  (NodeBuilder t host m, WidgetPtr w)
+  => w -> m (WidgetTouchEvents t)
 getWidgetTouchEvents w = do
     run <- view runWithActions
     touchTypes <- newEventWithTrigger $ \et -> do
@@ -166,8 +165,8 @@ getWidgetTouchEvents w = do
     return $ WidgetTouchEvents beganE movedE endedE cancelledE
 
 getWidgetClicks ::
-  (Reflex t, MonadReflexCreateTrigger t m, MonadIO m, WidgetPtr w)
-  => w -> NodeBuilder t m (Event t ())
+  (NodeBuilder t host m, WidgetPtr w)
+  => w -> m (Event t ())
 getWidgetClicks w = do
     run <- view runWithActions
     newEventWithTrigger $ \et -> do
@@ -175,8 +174,8 @@ getWidgetClicks w = do
       return $ pure ()
 
 getWidgetEvents ::
-  (Reflex t, MonadReflexCreateTrigger t m, MonadIO m, WidgetPtr w)
-  => w -> NodeBuilder t m (WidgetEvents t)
+  (NodeBuilder t host m, WidgetPtr w)
+  => w -> m (WidgetEvents t)
 getWidgetEvents w = WidgetEvents <$> getWidgetTouchEvents w <*> getWidgetClicks w
 
 instance MonadIO m => HasRWTextAttrib Text m where
@@ -213,8 +212,7 @@ findLayoutByName :: (MonadIO m, WidgetPtr w) => w -> String -> m (Maybe Layout)
 findLayoutByName = findWidgetByName' downToLayout
 
 -- creating new widgets
-button :: (Reflex t, MonadReflexCreateTrigger t m, MonadIO m)
-       => [Prop Button (NodeBuilder t m)] -> NodeBuilder t m (Button, Event t ())
+button :: NodeBuilder t host m => [Prop Button m] -> m (Button, Event t ())
 button props = do
     but <- addNewChild button_create props
     we <- getWidgetClicks but

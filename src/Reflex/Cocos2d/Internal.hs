@@ -14,25 +14,18 @@
 {-# LANGUAGE RecursiveDo #-}
 module Reflex.Cocos2d.Internal
     (
-    -- , NodeBuilder
-    -- , runNodeBuilder
       mainScene
-
     )
   where
 
 import Data.Dependent.Sum ((==>))
-import Data.Functor.Contravariant
 import Data.IORef
-import Data.Dependent.Sum (DSum (..))
-import Diagrams (V2)
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Ref
 import Control.Monad.Exception
-import Control.Monad.Trans.Free
 import Control.Lens
 import Reflex
 import Reflex.Host.Class
@@ -45,7 +38,6 @@ import Graphics.UI.Cocos2d.Scene
 import Graphics.UI.Cocos2d.Director
 
 import Reflex.Cocos2d.Class
-import Reflex.Cocos2d.Attributes hiding (get)
 
 -- mostly borrowed from Reflex.Dom.Internal
 data BuilderState t m = BuilderState
@@ -131,7 +123,7 @@ instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
         return $ fmapMaybe fst newChildBuilt
 
 instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
-         , MonadIO m, MonadFix m, MonadHold t m )
+         , MonadIO m, MonadHold t m )
         => EventSequenceHolder t (Builder t m) (Builder t m) where
     seqHold init e = do
         p <- asks $ view parent
@@ -156,9 +148,6 @@ instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
             liftIO $ readRef newChildBuiltTriggerRef
                     >>= mapM_ (\t -> run ([t ==> (r, builderState)], firePostBuild))
         return (result0, fst <$> newChildBuilt)
-    seqDyn d = do
-        (_, e) <- seqHold (return ()) =<< postponeCurrent d
-        return e
 
 instance
   ( Reflex t
@@ -212,21 +201,3 @@ mainScene bd = do
     director_getInstance >>= flip director_runWithScene scene
     return result
 
--- | Similar to `dyn`, but applies strict read
--- XXX: nasty constraints to allow 'c' to be instantiated as different types within the function
--- dyn' :: ( BuilderHostFrame t m
---         , IsSettable w (HostFrame t) a (attr w (HostFrame t) b a)
---         , IsSettable w m a (attr w m b a) )
---      => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
---      -> WOAttrib' w m (Dynamic t a)
--- dyn' attr = WOAttrib $ \w d -> do
---               setter attr w =<< sample (current d)
---               let WOAttrib es = evt attr
---               es w (updated d)
--- uDyn' :: ( BuilderHostFrame t m
---          , IsSettable w (HostFrame t) a (attr w (HostFrame t) b a)
---          , IsSettable w m a (attr w m b a)
---          , Eq a )
---       => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
---       -> WOAttrib' w m (UniqDynamic t a)
--- uDyn' attr = fromUniqDynamic >$< dyn' attr

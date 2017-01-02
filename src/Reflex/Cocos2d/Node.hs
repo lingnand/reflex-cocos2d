@@ -76,12 +76,11 @@ import Graphics.UI.Cocos2d.Widget
 -- import Graphics.UI.Cocos2d.Action
 import Graphics.UI.Cocos2d.Sprite
 import Foreign.Hoppy.Runtime (Decodable(..), CppPtr(..))
-import Reflex.Cocos2d.Internal
 import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Attributes
 
 -- * Node
-addNewChild :: (MonadIO m, NodePtr n) => IO n -> [Prop n (NodeBuilder t m)] -> NodeBuilder t m n
+addNewChild :: (NodePtr n, NodeBuilder t host m) => IO n -> [Prop n m] -> m n
 addNewChild factory props = do
   n <- liftIO factory
   setProps n props
@@ -90,30 +89,30 @@ addNewChild factory props = do
   addFinalizer . liftIO $ node_removeChild p n
   return n
 
-node :: MonadIO m => [Prop Node (NodeBuilder t m)] -> NodeBuilder t m Node
+node :: NodeBuilder t host m => [Prop Node m] -> m Node
 node = addNewChild node_create
 
-node_ :: MonadIO m => [Prop Node (NodeBuilder t m)] -> NodeBuilder t m ()
+node_ :: NodeBuilder t host m => [Prop Node m] -> m ()
 node_ = void . node
 
-layer :: MonadIO m => [Prop Layer (NodeBuilder t m)] -> NodeBuilder t m Layer
+layer :: NodeBuilder t host m => [Prop Layer m] -> m Layer
 layer = addNewChild layer_create
 
-layer_ :: MonadIO m => [Prop Layer (NodeBuilder t m)] -> NodeBuilder t m ()
+layer_ :: NodeBuilder t host m => [Prop Layer m] -> m ()
 layer_ = void . layer
 
-layerColor :: MonadIO m => [Prop LayerColor (NodeBuilder t m)] -> NodeBuilder t m LayerColor
+layerColor :: NodeBuilder t host m => [Prop LayerColor (m)] -> m LayerColor
 layerColor = addNewChild layerColor_create
 
-layerColor_ :: MonadIO m => [Prop LayerColor (NodeBuilder t m)] -> NodeBuilder t m ()
+layerColor_ :: NodeBuilder t host m => [Prop LayerColor (m)] -> m ()
 layerColor_ = void . layerColor
 
 -- * Sprite
 
-sprite :: MonadIO m => [Prop Sprite (NodeBuilder t m)] -> NodeBuilder t m Sprite
+sprite :: NodeBuilder t host m => [Prop Sprite (m)] -> m Sprite
 sprite = addNewChild sprite_create
 
-sprite_ :: MonadIO m => [Prop Sprite (NodeBuilder t m)] -> NodeBuilder t m ()
+sprite_ :: NodeBuilder t host m => [Prop Sprite (m)] -> m ()
 sprite_ = void . sprite
 
 
