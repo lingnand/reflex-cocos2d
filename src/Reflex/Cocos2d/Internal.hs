@@ -85,8 +85,8 @@ runBuilder (Builder builder) env =
     runStateT (runReaderT builder env) emptyBuilderState
 
 instance {-# OVERLAPPING #-}
-    (Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m, MonadIO m)
-    => EventSequencer t m (Builder t m) where
+  (Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m, MonadIO m)
+  => EventSequencer t m (Builder t m) where
     seqEvent_ e = Builder $ builderVoidActions %= (e:)
     seqEventMaybe e = do
       run <- view runWithActions
@@ -98,8 +98,8 @@ instance {-# OVERLAPPING #-}
       return eResult
 
 instance {-# INCOHERENT #-}
-    (Reflex t, EventSequencer t m (Builder t m), MonadIO m)
-    => EventSequencer t IO (Builder t m) where
+  (Reflex t, EventSequencer t m (Builder t m), MonadIO m)
+  => EventSequencer t IO (Builder t m) where
     seqEvent_ = seqEvent_ . fmap (liftIO :: IO a -> m a)
     seqEventMaybe = seqEventMaybe . fmap (liftIO :: IO a -> m a)
 
@@ -124,7 +124,7 @@ instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
 
 instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
          , MonadIO m, MonadHold t m )
-        => EventSequenceHolder t (Builder t m) (Builder t m) where
+        => EventSequenceHolder t (Builder t m) where
     seqHold init e = do
         p <- asks $ view parent
         oldState <- Builder $ get <* put (BuilderState [] (return ()))

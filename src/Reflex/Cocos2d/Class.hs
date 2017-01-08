@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
@@ -134,67 +135,72 @@ windowSize
 {-# INLINE windowSize #-}
 
 
-class (Reflex t, Monad im, MonadHold t m) => EventSequenceHolder t im m where
-    seqHold :: (im a) -> Event t (im b) -> m (a, Event t b)
-    seqHoldDyn :: (im a) -> Event t (im a) -> m (Dynamic t a)
+class (Reflex t, MonadHold t m) => EventSequenceHolder t m where
+    seqHold :: (m a) -> Event t (m b) -> m (a, Event t b)
+    seqHoldDyn :: (m a) -> Event t (m a) -> m (Dynamic t a)
     seqHoldDyn init e = seqHold init e >>= uncurry holdDyn
     -- strict evaluation
-    seqDyn' :: Dynamic t (im a) -> m (Dynamic t a)
+    seqDyn' :: Dynamic t (m a) -> m (Dynamic t a)
     seqDyn' d = sample (current d) >>= flip seqHoldDyn (updated d)
 
 -- non-strict evaluation of dynamic
-seqDyn :: (EventSequenceHolder t im m, MonadReader (NodeBuilderEnv t) m)
-       => Dynamic t (im a) -> m (Event t a)
+seqDyn :: (EventSequenceHolder t m, MonadReader (NodeBuilderEnv t) m)
+       => Dynamic t (m a) -> m (Event t a)
 seqDyn d = do
     (_, e) <- seqHold (return ()) =<< postponeCurrent d
     return e
 
-class (Reflex t, Monad im, Monad m) => EventSequencer t im m where
-    seqEventMaybe :: Event t (im (Maybe a)) -> m (Event t a)
+class (Reflex t, Monad m) => EventSequencer t m | m -> t where
+    type  Sequenceable m :: * -> *
+    seqEventMaybe :: Event t (Sequenceable m (Maybe a)) -> m (Event t a)
     seqEventMaybe = fmap (fmapMaybe id) . seqEvent
-    seqEvent :: Event t (im a) -> m (Event t a)
+    seqEvent :: Event t (Sequenceable m a) -> m (Event t a)
     seqEvent = seqEventMaybe . fmap (Just <$>)
-    seqEvent_ :: Event t (im ()) -> m ()
+    seqEvent_ :: Event t (Sequenceable m ()) -> m ()
     seqEvent_ = void . seqEvent
 
-    seqMapEventMaybe :: (a -> im (Maybe b)) -> Event t a -> m (Event t b)
+    seqMapEventMaybe :: (a -> Sequenceable m (Maybe b)) -> Event t a -> m (Event t b)
     seqMapEventMaybe f = seqEventMaybe . fmap f
-    seqMapEvent :: (a -> im b) -> Event t a -> m (Event t b)
+    seqMapEvent :: (a -> Sequenceable m b) -> Event t a -> m (Event t b)
     seqMapEvent f = seqEvent . fmap f
-    seqMapEvent_ ::  (a -> im ()) -> Event t a -> m ()
+    seqMapEvent_ ::  (a -> Sequenceable m ()) -> Event t a -> m ()
     seqMapEvent_ f = seqEvent_ . fmap f
 
-    forEventMaybe :: Event t a -> (a -> im (Maybe b)) -> m (Event t b)
+    forEventMaybe :: Event t a -> (a -> Sequenceable m (Maybe b)) -> m (Event t b)
     forEventMaybe e = seqEventMaybe . ffor e
-    forEvent :: Event t a -> (a -> im b) -> m (Event t b)
+    forEvent :: Event t a -> (a -> Sequenceable m b) -> m (Event t b)
     forEvent e = seqEvent . ffor e
-    forEvent_ :: Event t a -> (a -> im ()) -> m ()
+    forEvent_ :: Event t a -> (a -> Sequenceable m ()) -> m ()
     forEvent_ e = seqEvent_ . ffor e
 
+-- instance {-# INCOHERENT #-}
+--   (Reflex t, Monad m) => EventSequencer t Identity m where
+--     seqEventMaybe = return . fmapMaybe runIdentity
+
 class Reflex t => SequenceAccumulator t f | f -> t where
-    seqAccum :: (MonadHold t m, MonadFix m, EventSequencer t im m)
-             => (a -> b -> im a) -> a -> Event t b -> m (f a)
+    seqAccum :: (MonadHold t m, MonadFix m, EventSequencer t m)
+             => (a -> b -> Sequenceable m a) -> a -> Event t b -> m (f a)
     seqAccum f = seqAccumMaybe $ \v o -> Just <$> f v o
 
-    seqAccumMaybe :: (MonadHold t m, MonadFix m, EventSequencer t im m)
-                  => (a -> b -> im (Maybe a)) -> a -> Event t b -> m (f a)
+    seqAccumMaybe :: (MonadHold t m, MonadFix m, EventSequencer t m)
+                  => (a -> b -> Sequenceable m (Maybe a)) -> a -> Event t b -> m (f a)
 
-    seqMapAccum :: (MonadHold t m, MonadFix m, EventSequencer t im m)
-                => (a -> b -> im (a, c)) -> a -> Event t b -> m (f a, Event t c)
+    seqMapAccum :: (MonadHold t m, MonadFix m, EventSequencer t m)
+                => (a -> b -> Sequenceable m (a, c)) -> a -> Event t b -> m (f a, Event t c)
     seqMapAccum f = seqMapAccumMaybe $ \v o -> bimap Just Just <$> f v o
 
-    seqMapAccumMaybe :: (MonadHold t m, MonadFix m, EventSequencer t im m)
-                     => (a -> b -> im (Maybe a, Maybe c)) -> a -> Event t b -> m (f a, Event t c)
+    seqMapAccumMaybe :: (MonadHold t m, MonadFix m, EventSequencer t m)
+                     => (a -> b -> Sequenceable m (Maybe a, Maybe c)) -> a -> Event t b -> m (f a, Event t c)
 
-seqMapAccum_ :: forall t im m a b c. (MonadHold t m, MonadFix m, EventSequencer t im m)
-             => (a -> b -> im (a, c)) -> a -> Event t b -> m (Event t c)
+seqMapAccum_ :: forall t m a b c. (MonadHold t m, MonadFix m, EventSequencer t m)
+             => (a -> b -> Sequenceable m (a, c)) -> a -> Event t b -> m (Event t c)
 seqMapAccum_ f z e = do
     (_ :: Dynamic t a, result) <- seqMapAccum f z e
     return result
 
-seqMapAccumMaybe_ :: forall t im m a b c.
-  (MonadHold t m, MonadFix m, EventSequencer t im m)
-  => (a -> b -> im (Maybe a, Maybe c)) -> a -> Event t b -> m (Event t c)
+seqMapAccumMaybe_ :: forall t m a b c.
+  (MonadHold t m, MonadFix m, EventSequencer t m)
+  => (a -> b -> Sequenceable m (Maybe a, Maybe c)) -> a -> Event t b -> m (Event t c)
 seqMapAccumMaybe_ f z e = do
     (_ :: Dynamic t a, result) <- seqMapAccumMaybe f z e
     return result
@@ -213,12 +219,13 @@ instance Reflex t => SequenceAccumulator t (Dynamic t) where
           da <- holdDyn z $ fmapMaybe fst evt
       return (da, fmapMaybe snd evt)
 
-instance {-# INCOHERENT #-}
-    (MonadIO m, Reflex t, MonadHold t m, MonadFix m, EventSequencer t im m)
-    => EventSequencer t (RandT StdGen im) m where
-    seqEventMaybe rands = do
-      g <- liftIO newStdGen
-      seqMapAccumMaybe_ (\g ma -> first Just . swap <$> runRandT ma g) g rands
+instance (Reflex t, MonadHold t m, MonadFix m, EventSequencer t m)
+  => EventSequencer t (RandT StdGen m) where
+    Sequenceable (RandT StdGen m) = RandT StdGen (Sequenceable m)
+    seqEventMaybe rands = liftRandT $ \g ->
+      let (g1, g2) = split g
+      evt <- seqMapAccumMaybe_ (\g ma -> first Just . swap <$> runRandT ma g) g1 rands
+      return (evt, g2)
 
 class
   ( Reflex t
@@ -234,7 +241,7 @@ class
   , EventSequencer t host m
   , EventSequencer t IO m
   , EventSequencer t m m
-  , EventSequenceHolder t m m
+  , EventSequenceHolder t m
   ) => NodeBuilder t host m | m -> host where
     -- add finalizer into the builder
     addFinalizer :: host () -> m ()
@@ -263,14 +270,14 @@ infixr 2 -<
     return (n, a)
 
 -- -- | Greedy Free
-seqHoldFree :: forall t im m a.
+seqHoldFree :: forall t m a.
                ( MonadFix m
                , MonadReader (NodeBuilderEnv t) m
-               , EventSequenceHolder t im m )
-            => FreeT (Event t) im a -> m (Event t a)
+               , EventSequenceHolder t m )
+            => FreeT (Event t) m a -> m (Event t a)
 seqHoldFree ft = mdo
     let startE = case result0 of
-          Pure _ -> never :: Event t (FreeT (Event t) im a)
+          Pure _ -> never :: Event t (FreeT (Event t) m a)
           Free e -> e
     newFs <- switchPromptly startE $ fmapMaybe previewFree newResult
     (result0, newResult) <- seqHold (runFreeT ft) (runFreeT <$> newFs)
@@ -343,20 +350,19 @@ switchFree f = do
 --
 
 -- Attributes
-evt :: (EventSequencer t im m, IsSettable w im a (attr w im b a))
-    => attr w im b a -> WOAttrib' w m (Event t a)
+evt :: (NodeBuilder t host m, IsSettable w host a (attr w host b a))
+    => attr w host b a -> WOAttrib' w m (Event t a)
 evt attr = WOAttrib $ \w e -> forEvent_ e $ setter attr w
 
 -- | Transforms a IsSettable attribute to a WOAttribute. This uses lazy read on the incoming Dynamic
-dyn :: (EventSequencer t im m, IsSettable w im a (attr w im b a), MonadReader (NodeBuilderEnv t) m)
-    => attr w im b a -> WOAttrib' w m (Dynamic t a)
+dyn :: (NodeBuilder t host m, IsSettable w host a (attr w host b a))
+    => attr w host b a -> WOAttrib' w m (Dynamic t a)
 dyn attr = WOAttrib $ \w -> setter evtattr w <=< postponeCurrent
   where evtattr = evt attr
 
 
-uDyn :: ( EventSequencer t im m, IsSettable w im a (attr w im b a), MonadReader (NodeBuilderEnv t) m
-        , Eq a )
-     => attr w im b a -> WOAttrib' w m (UniqDynamic t a)
+uDyn :: (NodeBuilder t host m, IsSettable w host a (attr w host b a), Eq a)
+     => attr w host b a -> WOAttrib' w m (UniqDynamic t a)
 uDyn = (fromUniqDynamic >$<) . dyn
 
 -- | Similar to `dyn`, but applies strict read
@@ -392,12 +398,14 @@ instance (MonadFix m, MonadHold t m, EventSequencer t im m)
         adjustMaybe $ switch behT
         return $ fmapMaybe fst built
 
-instance EventSequencer t im m => EventSequencer t im (AccStateT t f s m) where
+instance {-# OVERLAPPABLE #-}
+  EventSequencer t im m => EventSequencer t im (AccStateT t f s m) where
     seqEventMaybe = lift . seqEventMaybe
     seqEvent_ = lift . seqEvent_
 
-instance EventSequenceHolder t im m
-        => EventSequenceHolder t (AccStateT t f s im) (AccStateT t f s m) where
+instance {-# OVERLAPPING #-}
+  EventSequenceHolder t m
+  => EventSequenceHolder t (AccStateT t f s m) where
     seqHold ma emb = do
         d <- watch
         ((a, tsZ), erb) <- lift . seqHold (_runAccStateT ma d []) $
@@ -406,3 +414,6 @@ instance EventSequenceHolder t im m
             tz = mergeWith composeMaybe tsZ
         switchPromptly tz et >>= adjustMaybe
         return (a, fst <$> erb)
+
+instance NodeBuilder t host m => NodeBuilder t host (AccStateT t f s m) where
+    addFinalizer = lift . addFinalizer
