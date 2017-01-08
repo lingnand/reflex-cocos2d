@@ -143,7 +143,7 @@ instance HasWidgetTouchEvents (WidgetEvents t) t where
     widgetTouchEvents = weToWTouchEvents
 
 getWidgetTouchEvents ::
-  (NodeBuilder t host m, WidgetPtr w)
+  (NodeBuilder t m, WidgetPtr w)
   => w -> m (WidgetTouchEvents t)
 getWidgetTouchEvents w = do
     run <- view runWithActions
@@ -165,7 +165,7 @@ getWidgetTouchEvents w = do
     return $ WidgetTouchEvents beganE movedE endedE cancelledE
 
 getWidgetClicks ::
-  (NodeBuilder t host m, WidgetPtr w)
+  (NodeBuilder t m, WidgetPtr w)
   => w -> m (Event t ())
 getWidgetClicks w = do
     run <- view runWithActions
@@ -174,7 +174,7 @@ getWidgetClicks w = do
       return $ pure ()
 
 getWidgetEvents ::
-  (NodeBuilder t host m, WidgetPtr w)
+  (NodeBuilder t m, WidgetPtr w)
   => w -> m (WidgetEvents t)
 getWidgetEvents w = WidgetEvents <$> getWidgetTouchEvents w <*> getWidgetClicks w
 
@@ -212,7 +212,7 @@ findLayoutByName :: (MonadIO m, WidgetPtr w) => w -> String -> m (Maybe Layout)
 findLayoutByName = findWidgetByName' downToLayout
 
 -- creating new widgets
-button :: NodeBuilder t host m => [Prop Button m] -> m (Button, Event t ())
+button :: NodeBuilder t m => [Prop Button m] -> m (Button, Event t ())
 button props = do
     but <- addNewChild button_create props
     we <- getWidgetClicks but

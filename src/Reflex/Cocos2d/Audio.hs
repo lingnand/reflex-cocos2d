@@ -33,14 +33,14 @@ playAudio filename props = do
     setProps au props
     return au
 
-getAudioFinishedEvent :: NodeBuilder t host m => AudioInstance -> m (Event t ())
+getAudioFinishedEvent :: NodeBuilder t m => AudioInstance -> m (Event t ())
 getAudioFinishedEvent id = do
     run <- view runWithActions
     newEventWithTrigger $ \tr -> do
       audioEngine_setFinishCallback id $ \_ _ -> run ([tr ==> ()], return ())
       return $ pure ()
 
-preloadAudio :: NodeBuilder t host m => String -> m (Event t Bool)
+preloadAudio :: NodeBuilder t m => String -> m (Event t Bool)
 preloadAudio filename = do
     run <- view runWithActions
     newEventWithTrigger $ \tr -> do

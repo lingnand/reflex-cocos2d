@@ -84,9 +84,9 @@ runBuilder :: Monad m
 runBuilder (Builder builder) env =
     runStateT (runReaderT builder env) emptyBuilderState
 
-instance {-# OVERLAPPING #-}
-  (Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m, MonadIO m)
-  => EventSequencer t m (Builder t m) where
+instance (Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m, MonadIO m)
+  => EventSequencer t (Builder t m) where
+    type Sequenceable (Builder t m) = m
     seqEvent_ e = Builder $ builderVoidActions %= (e:)
     seqEventMaybe e = do
       run <- view runWithActions
@@ -97,34 +97,34 @@ instance {-# OVERLAPPING #-}
             _ -> return ()
       return eResult
 
-instance {-# INCOHERENT #-}
-  (Reflex t, EventSequencer t m (Builder t m), MonadIO m)
-  => EventSequencer t IO (Builder t m) where
-    seqEvent_ = seqEvent_ . fmap (liftIO :: IO a -> m a)
-    seqEventMaybe = seqEventMaybe . fmap (liftIO :: IO a -> m a)
+-- instance (Reflex t, EventSequencer t m (Builder t m), MonadIO m)
+--   => EventSequencer t IO (Builder t m) where
+--     seqEvent_ = seqEvent_ . fmap (liftIO :: IO a -> m a)
+--     seqEventMaybe = seqEventMaybe . fmap (liftIO :: IO a -> m a)
 
-instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
-         , MonadIO m, MonadFix m, MonadHold t m )
-        => EventSequencer t (Builder t m) (Builder t m) where
-    seqEventMaybe e = do
-        (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
-        let onNewChildBuilt :: Event t (m ()) -> (a, [Event t (m ())]) -> Maybe (Event t (m ()))
-            onNewChildBuilt _ (_, []) = Nothing
-            onNewChildBuilt acc (_, vas) = Just $ mergeWith (>>) (acc:reverse vas)
-        seqEvent_ . switch =<< accumMaybe onNewChildBuilt (never :: Event t (m ())) newChildBuilt
-        builderEnv <- ask
-        let run = builderEnv ^. runWithActions
-        forEvent_ e $ \bd -> do
-            (postBuildE, postBuildTr) <- newEventWithTriggerRef
-            let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
-            (r, builderState) <- runBuilder bd (builderEnv & postBuildEvent .~ postBuildE)
-            liftIO $ readRef newChildBuiltTriggerRef
-                      >>= mapM_ (\t -> run ([t ==> (r, builderState^.builderVoidActions)], firePostBuild))
-        return $ fmapMaybe fst newChildBuilt
+-- instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
+--          , MonadIO m, MonadFix m, MonadHold t m )
+--         => EventSequencer t (Builder t m) (Builder t m) where
+--     seqEventMaybe e = do
+--         (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
+--         let onNewChildBuilt :: Event t (m ()) -> (a, [Event t (m ())]) -> Maybe (Event t (m ()))
+--             onNewChildBuilt _ (_, []) = Nothing
+--             onNewChildBuilt acc (_, vas) = Just $ mergeWith (>>) (acc:reverse vas)
+--         seqEvent_ . switch =<< accumMaybe onNewChildBuilt (never :: Event t (m ())) newChildBuilt
+--         builderEnv <- ask
+--         let run = builderEnv ^. runWithActions
+--         forEvent_ e $ \bd -> do
+--             (postBuildE, postBuildTr) <- newEventWithTriggerRef
+--             let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
+--             (r, builderState) <- runBuilder bd (builderEnv & postBuildEvent .~ postBuildE)
+--             liftIO $ readRef newChildBuiltTriggerRef
+--                       >>= mapM_ (\t -> run ([t ==> (r, builderState^.builderVoidActions)], firePostBuild))
+--         return $ fmapMaybe fst newChildBuilt
 
 instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
          , MonadIO m, MonadHold t m )
         => EventSequenceHolder t (Builder t m) where
+    type Finalizable (Builder t m) = m
     seqHold init e = do
         p <- asks $ view parent
         oldState <- Builder $ get <* put (BuilderState [] (return ()))
@@ -148,15 +148,15 @@ instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
             liftIO $ readRef newChildBuiltTriggerRef
                     >>= mapM_ (\t -> run ([t ==> (r, builderState)], firePostBuild))
         return (result0, fst <$> newChildBuilt)
+    addFinalizer a = Builder $ builderFinalizers %= (a >>)
 
 instance
   ( Reflex t
-  , MonadReflexCreateTrigger t host, MonadSubscribeEvent t host
-  , MonadSample t host, MonadHold t host, MonadFix host
-  , MonadRef host, Ref host ~ Ref IO
-  , MonadIO host
-  ) => NodeBuilder t host (Builder t host) where
-    addFinalizer a = Builder $ builderFinalizers %= (a >>)
+  , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
+  , MonadSample t m, MonadHold t m, MonadFix m
+  , MonadRef m, Ref m ~ Ref IO
+  , MonadIO m
+  ) => NodeBuilder t (Builder t m) where
 
 -- | Construct a new scene with a NodeBuilder
 mainScene :: Builder Spider (HostFrame Spider) a -> IO a

@@ -260,7 +260,7 @@ keyReleased f (KeyboardEvents pressed released)
 
 -- Event listeners
 -- We generally put the listener to priority > scene graph (negative numbers)
-getMouseEvents :: NodeBuilder t host m => m (MouseEvents t)
+getMouseEvents :: NodeBuilder t m => m (MouseEvents t)
 getMouseEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -276,7 +276,7 @@ getMouseEvents = do
                 <*> newEventWithTrigger (handleTrigger eventListenerMouse_onMouseMove_set)
                 <*> newEventWithTrigger (handleTrigger eventListenerMouse_onMouseScroll_set)
 
-getTouchEvents :: NodeBuilder t host m => m (TouchEvents t)
+getTouchEvents :: NodeBuilder t m => m (TouchEvents t)
 getTouchEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -295,7 +295,7 @@ getTouchEvents = do
                 <*> newEventWithTrigger (handleTrigger eventListenerTouchOneByOne_onTouchEnded_set)
                 <*> newEventWithTrigger (handleTrigger eventListenerTouchOneByOne_onTouchCancelled_set)
 
-getMultiTouchEvents :: NodeBuilder t host m => m (MultiTouchEvents t)
+getMultiTouchEvents :: NodeBuilder t m => m (MultiTouchEvents t)
 getMultiTouchEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -312,7 +312,7 @@ getMultiTouchEvents = do
                      <*> newEventWithTrigger (handleTrigger eventListenerTouchAllAtOnce_onTouchesEnded_set)
                      <*> newEventWithTrigger (handleTrigger eventListenerTouchAllAtOnce_onTouchesCancelled_set)
 
-getKeyboardEvents :: NodeBuilder t host m => m (KeyboardEvents t)
+getKeyboardEvents :: NodeBuilder t m => m (KeyboardEvents t)
 getKeyboardEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -324,7 +324,7 @@ getKeyboardEvents = do
     KeyboardEvents <$> newEventWithTrigger (handleTrigger eventListenerKeyboard_onKeyPressed_set)
                    <*> newEventWithTrigger (handleTrigger eventListenerKeyboard_onKeyReleased_set)
 
-getAccelerations :: NodeBuilder t host m => m (Event t Acceleration)
+getAccelerations :: NodeBuilder t m => m (Event t Acceleration)
 getAccelerations = do
     run <- view runWithActions
     newEventWithTrigger $ \tr -> do
@@ -399,7 +399,7 @@ accumKeysDown (KeyboardEvents pressedE releasedE) = do
 
 -- | NOTE: we can't return the texture because it's an autoreleased object
 loadTexture
-  :: NodeBuilder t host m => String -> m (Event t ())
+  :: NodeBuilder t m => String -> m (Event t ())
 loadTexture path = do
     run <- view runWithActions
     -- Since we are not sure if the user would subscribe to the resulting event, we can't just use

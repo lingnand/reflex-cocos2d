@@ -36,10 +36,10 @@ import Reflex.Cocos2d.Attributes
 import Reflex.Cocos2d.Node
 import Reflex.Cocos2d.Types
 
-label :: NodeBuilder t host m => [Prop Label m] -> m Label
+label :: NodeBuilder t m => [Prop Label m] -> m Label
 label = addNewChild label_create
 
-label_ :: NodeBuilder t host m => [Prop Label m] -> m ()
+label_ :: NodeBuilder t m => [Prop Label m] -> m ()
 label_ = void . label
 
 ---- Attrs ----

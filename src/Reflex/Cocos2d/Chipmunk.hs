@@ -192,7 +192,7 @@ instance SpacePtr a s => SpacePtr a (s, x) where
 type SpaceStep = Time
 
 -- | create and run a space at frame rate
-space :: NodeBuilder t host m
+space :: NodeBuilder t m
       => [Prop (Space a) m] -> m (Space a, Event t SpaceStep)
 space props = do
     ts <- view frameTicks
@@ -200,7 +200,7 @@ space props = do
     addFinalizer  . liftIO $ H.freeSpace sp
     let wrapped = SPWrap sp
     setProps wrapped props
-    fmap (wrapped,) . forEvent ts $ \dt -> do
+    fmap (wrapped,) . forEvent ts $ \dt -> liftIO $ do
       H.step sp $ realToFrac dt
       return dt
 
@@ -220,7 +220,7 @@ collisionEnded f (CollisionEvents began ended)
       (\ ended' -> CollisionEvents began ended') (f ended)
 {-# INLINE collisionEnded #-}
 
-getCollisionEvents :: NodeBuilder t host m => Space a -> m (CollisionEvents t a)
+getCollisionEvents :: NodeBuilder t m => Space a -> m (CollisionEvents t a)
 getCollisionEvents (SPWrap sp) = do
     (eBegin, trBegin) <- newEventWithTriggerRef
     (eSeparate, trSeparate) <- newEventWithTriggerRef
@@ -276,7 +276,7 @@ safeRemove sp e = liftIO $ H.inSpace e >>= \case
     _ -> return ()
 
 -- | NOTE: to add the body to the space, you have to pass in the active := true prop
-body :: NodeBuilder t host m
+body :: NodeBuilder t m
      => Space a
      -> [Prop (Space a, Body a) m]
      -> m (Body a)
@@ -289,7 +289,7 @@ body wsp props = do
     return wrapped
 
 -- | NOTE: to add the shape to the space, you have to pass in the active := true prop
-shape :: NodeBuilder t host m
+shape :: NodeBuilder t m
       => Space a
       -> Body a
       -> H.Geometry Float

@@ -80,7 +80,7 @@ import Reflex.Cocos2d.Class
 import Reflex.Cocos2d.Attributes
 
 -- * Node
-addNewChild :: (NodePtr n, NodeBuilder t host m) => IO n -> [Prop n m] -> m n
+addNewChild :: (NodePtr n, NodeBuilder t m) => IO n -> [Prop n m] -> m n
 addNewChild factory props = do
   n <- liftIO factory
   setProps n props
@@ -89,30 +89,30 @@ addNewChild factory props = do
   addFinalizer . liftIO $ node_removeChild p n
   return n
 
-node :: NodeBuilder t host m => [Prop Node m] -> m Node
+node :: NodeBuilder t m => [Prop Node m] -> m Node
 node = addNewChild node_create
 
-node_ :: NodeBuilder t host m => [Prop Node m] -> m ()
+node_ :: NodeBuilder t m => [Prop Node m] -> m ()
 node_ = void . node
 
-layer :: NodeBuilder t host m => [Prop Layer m] -> m Layer
+layer :: NodeBuilder t m => [Prop Layer m] -> m Layer
 layer = addNewChild layer_create
 
-layer_ :: NodeBuilder t host m => [Prop Layer m] -> m ()
+layer_ :: NodeBuilder t m => [Prop Layer m] -> m ()
 layer_ = void . layer
 
-layerColor :: NodeBuilder t host m => [Prop LayerColor (m)] -> m LayerColor
+layerColor :: NodeBuilder t m => [Prop LayerColor (m)] -> m LayerColor
 layerColor = addNewChild layerColor_create
 
-layerColor_ :: NodeBuilder t host m => [Prop LayerColor (m)] -> m ()
+layerColor_ :: NodeBuilder t m => [Prop LayerColor (m)] -> m ()
 layerColor_ = void . layerColor
 
 -- * Sprite
 
-sprite :: NodeBuilder t host m => [Prop Sprite (m)] -> m Sprite
+sprite :: NodeBuilder t m => [Prop Sprite (m)] -> m Sprite
 sprite = addNewChild sprite_create
 
-sprite_ :: NodeBuilder t host m => [Prop Sprite (m)] -> m ()
+sprite_ :: NodeBuilder t m => [Prop Sprite (m)] -> m ()
 sprite_ = void . sprite
 
 
