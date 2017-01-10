@@ -39,6 +39,7 @@ import Graphics.UI.Cocos2d.Director
 
 import Reflex.Cocos2d.Class
 
+
 -- mostly borrowed from Reflex.Dom.Internal
 data BuilderState t m = BuilderState
     { _builderVoidActions :: ![Event t (m ())]
@@ -101,6 +102,9 @@ instance (Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m, Mo
 --   => EventSequencer t IO (Builder t m) where
 --     seqEvent_ = seqEvent_ . fmap (liftIO :: IO a -> m a)
 --     seqEventMaybe = seqEventMaybe . fmap (liftIO :: IO a -> m a)
+
+
+
 
 -- instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
 --          , MonadIO m, MonadFix m, MonadHold t m )

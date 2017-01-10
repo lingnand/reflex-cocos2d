@@ -155,6 +155,45 @@ seqDyn d = do
     (_, e) <- seqHold (return ()) =<< postponeCurrent d
     return e
 
+-- | Different from MonadTransControl, this doesn't provide any
+-- functionality for restore; and the Eval function is used to perform
+-- effectful evaluations in the context *without* exposing any internal state
+type Eval t = forall n b. Monad n => t n b -> n b
+class MonadTrans t => MonadTransEval t where
+    liftEval :: Monad m => (Eval t -> m a) -> t m a
+
+-- for things like RandT, we can achieve that with liftSeqEvent coupled
+-- with hoist, i.e.,
+-- Event t (RandT g m' (Maybe a)) -> trans (RandT g m') (Event t a)
+-- trans (RandT g m') (Event t a) -> trans m' (Event t a)
+
+
+-- trans (trans m') (Maybe a) -> trans (trans m') (Event t a)
+
+class ( Reflex t, Monad m )
+     => MonadTransSeqEvent t trans | trans -> t where
+    -- type  Sequenceable m :: * -> *
+    liftSeqEventMaybe :: Monad m => Event t (m (Maybe a)) -> trans m (Event t a)
+    liftSeqEventMaybe = fmap (fmapMaybe id) . seqEvent
+    liftSeqEvent :: Monad m => Event t (m a) -> trans m (Event t a)
+    liftSeqEvent = seqEventMaybe . fmap (Just <$>)
+    liftSeqEvent_ :: Monad m => Event t (m ()) -> trans m ()
+    liftSeqEvent_ = void . seqEvent
+
+    seqMapEventMaybe :: (a -> m (Maybe b)) -> Event t a -> trans m (Event t b)
+    seqMapEventMaybe f = seqEventMaybe . fmap f
+    seqMapEvent :: (a -> m b) -> Event t a -> trans m (Event t b)
+    seqMapEvent f = seqEvent . fmap f
+    seqMapEvent_ ::  (a -> m ()) -> Event t a -> trans m ()
+    seqMapEvent_ f = seqEvent_ . fmap f
+
+    forEventMaybe :: Event t a -> (a -> m (Maybe b)) -> trans m (Event t b)
+    forEventMaybe e = seqEventMaybe . ffor e
+    forEvent :: Event t a -> (a -> m b) -> trans m (Event t b)
+    forEvent e = seqEvent . ffor e
+    forEvent_ :: Event t a -> (a -> m ()) -> trans m ()
+    forEvent_ e = seqEvent_ . ffor e
+
 class ( Reflex t, Monad m
       , Functor (Sequenceable m) )
      => EventSequencer t m | m -> t where
