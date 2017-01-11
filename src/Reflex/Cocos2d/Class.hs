@@ -180,19 +180,19 @@ class ( Reflex t, Monad m )
     liftSeqEvent_ :: Monad m => Event t (m ()) -> trans m ()
     liftSeqEvent_ = void . seqEvent
 
-    seqMapEventMaybe :: (a -> m (Maybe b)) -> Event t a -> trans m (Event t b)
-    seqMapEventMaybe f = seqEventMaybe . fmap f
-    seqMapEvent :: (a -> m b) -> Event t a -> trans m (Event t b)
-    seqMapEvent f = seqEvent . fmap f
-    seqMapEvent_ ::  (a -> m ()) -> Event t a -> trans m ()
-    seqMapEvent_ f = seqEvent_ . fmap f
+    liftSeqMapEventMaybe :: (a -> m (Maybe b)) -> Event t a -> trans m (Event t b)
+    liftSeqMapEventMaybe f = seqEventMaybe . fmap f
+    liftSeqMapEvent :: (a -> m b) -> Event t a -> trans m (Event t b)
+    liftSeqMapEvent f = seqEvent . fmap f
+    liftSeqMapEvent_ ::  (a -> m ()) -> Event t a -> trans m ()
+    liftSeqMapEvent_ f = seqEvent_ . fmap f
 
-    forEventMaybe :: Event t a -> (a -> m (Maybe b)) -> trans m (Event t b)
-    forEventMaybe e = seqEventMaybe . ffor e
-    forEvent :: Event t a -> (a -> m b) -> trans m (Event t b)
-    forEvent e = seqEvent . ffor e
-    forEvent_ :: Event t a -> (a -> m ()) -> trans m ()
-    forEvent_ e = seqEvent_ . ffor e
+    liftForEventMaybe :: Event t a -> (a -> m (Maybe b)) -> trans m (Event t b)
+    liftForEventMaybe e = seqEventMaybe . ffor e
+    liftForEvent :: Event t a -> (a -> m b) -> trans m (Event t b)
+    liftForEvent e = seqEvent . ffor e
+    liftForEvent_ :: Event t a -> (a -> m ()) -> trans m ()
+    liftForEvent_ e = seqEvent_ . ffor e
 
 class ( Reflex t, Monad m
       , Functor (Sequenceable m) )
