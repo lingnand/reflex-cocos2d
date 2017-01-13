@@ -42,7 +42,6 @@ library
                      , lens
                      , time
                      , data-default
-                     , MonadRandom
                      , contravariant
                      , exception-transformers
                      , free

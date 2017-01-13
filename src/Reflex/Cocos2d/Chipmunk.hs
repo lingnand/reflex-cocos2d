@@ -200,7 +200,7 @@ space props = do
     addFinalizer  . liftIO $ H.freeSpace sp
     let wrapped = SPWrap sp
     setProps wrapped props
-    fmap (wrapped,) . forEvent ts $ \dt -> liftIO $ do
+    fmap (wrapped,) . seqForEvent ts $ \dt -> liftIO $ do
       H.step sp $ realToFrac dt
       return dt
 

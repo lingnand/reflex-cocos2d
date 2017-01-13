@@ -19,8 +19,8 @@ module Reflex.Cocos2d.Class
     , frameTicks
     , runWithActions
 
-    , EventSequencer(..)
-    , EventSequenceHolder(..)
+    , MonadSequenceEvent(..)
+    , MonadSequenceHold(..)
     , seqDyn
 
     , SequenceAccumulator(..)
@@ -63,7 +63,6 @@ import Control.Monad.Fix
 import Control.Monad.Ref
 import Control.Monad.Trans.Free
 import Control.Monad.Reader
-import Control.Monad.Random
 import Control.Lens
 import Reflex
 import Reflex.Host.Class
@@ -135,7 +134,7 @@ windowSize
 {-# INLINE windowSize #-}
 
 
-class (Reflex t, MonadHold t m) => EventSequenceHolder t m where
+class (Reflex t, MonadHold t m) => MonadSequenceHold t m where
     type Finalizable m :: * -> *
     -- | run the initial z and on each new computation run the finalizer
     -- accumulated in the last
@@ -149,55 +148,16 @@ class (Reflex t, MonadHold t m) => EventSequenceHolder t m where
     addFinalizer :: Finalizable m () -> m ()
 
 -- non-strict evaluation of dynamic
-seqDyn :: (EventSequenceHolder t m, MonadReader (NodeBuilderEnv t) m)
+seqDyn :: (MonadSequenceHold t m, MonadReader (NodeBuilderEnv t) m)
        => Dynamic t (m a) -> m (Event t a)
 seqDyn d = do
     (_, e) <- seqHold (return ()) =<< postponeCurrent d
     return e
 
--- | Different from MonadTransControl, this doesn't provide any
--- functionality for restore; and the Eval function is used to perform
--- effectful evaluations in the context *without* exposing any internal state
-type Eval t = forall n b. Monad n => t n b -> n b
-class MonadTrans t => MonadTransEval t where
-    liftEval :: Monad m => (Eval t -> m a) -> t m a
-
--- for things like RandT, we can achieve that with liftSeqEvent coupled
--- with hoist, i.e.,
--- Event t (RandT g m' (Maybe a)) -> trans (RandT g m') (Event t a)
--- trans (RandT g m') (Event t a) -> trans m' (Event t a)
-
-
--- trans (trans m') (Maybe a) -> trans (trans m') (Event t a)
-
-class ( Reflex t, Monad m )
-     => MonadTransSeqEvent t trans | trans -> t where
-    -- type  Sequenceable m :: * -> *
-    liftSeqEventMaybe :: Monad m => Event t (m (Maybe a)) -> trans m (Event t a)
-    liftSeqEventMaybe = fmap (fmapMaybe id) . seqEvent
-    liftSeqEvent :: Monad m => Event t (m a) -> trans m (Event t a)
-    liftSeqEvent = seqEventMaybe . fmap (Just <$>)
-    liftSeqEvent_ :: Monad m => Event t (m ()) -> trans m ()
-    liftSeqEvent_ = void . seqEvent
-
-    liftSeqMapEventMaybe :: (a -> m (Maybe b)) -> Event t a -> trans m (Event t b)
-    liftSeqMapEventMaybe f = seqEventMaybe . fmap f
-    liftSeqMapEvent :: (a -> m b) -> Event t a -> trans m (Event t b)
-    liftSeqMapEvent f = seqEvent . fmap f
-    liftSeqMapEvent_ ::  (a -> m ()) -> Event t a -> trans m ()
-    liftSeqMapEvent_ f = seqEvent_ . fmap f
-
-    liftForEventMaybe :: Event t a -> (a -> m (Maybe b)) -> trans m (Event t b)
-    liftForEventMaybe e = seqEventMaybe . ffor e
-    liftForEvent :: Event t a -> (a -> m b) -> trans m (Event t b)
-    liftForEvent e = seqEvent . ffor e
-    liftForEvent_ :: Event t a -> (a -> m ()) -> trans m ()
-    liftForEvent_ e = seqEvent_ . ffor e
-
 class ( Reflex t, Monad m
       , Functor (Sequenceable m) )
-     => EventSequencer t m | m -> t where
-    type  Sequenceable m :: * -> *
+     => MonadSequenceEvent t m | m -> t where
+    type Sequenceable m :: * -> *
     seqEventMaybe :: Event t (Sequenceable m (Maybe a)) -> m (Event t a)
     seqEventMaybe = fmap (fmapMaybe id) . seqEvent
     seqEvent :: Event t (Sequenceable m a) -> m (Event t a)
@@ -212,40 +172,40 @@ class ( Reflex t, Monad m
     seqMapEvent_ ::  (a -> Sequenceable m ()) -> Event t a -> m ()
     seqMapEvent_ f = seqEvent_ . fmap f
 
-    forEventMaybe :: Event t a -> (a -> Sequenceable m (Maybe b)) -> m (Event t b)
-    forEventMaybe e = seqEventMaybe . ffor e
-    forEvent :: Event t a -> (a -> Sequenceable m b) -> m (Event t b)
-    forEvent e = seqEvent . ffor e
-    forEvent_ :: Event t a -> (a -> Sequenceable m ()) -> m ()
-    forEvent_ e = seqEvent_ . ffor e
+    seqForEventMaybe :: Event t a -> (a -> Sequenceable m (Maybe b)) -> m (Event t b)
+    seqForEventMaybe e = seqEventMaybe . ffor e
+    seqForEvent :: Event t a -> (a -> Sequenceable m b) -> m (Event t b)
+    seqForEvent e = seqEvent . ffor e
+    seqForEvent_ :: Event t a -> (a -> Sequenceable m ()) -> m ()
+    seqForEvent_ e = seqEvent_ . ffor e
 
 -- instance {-# INCOHERENT #-}
---   (Reflex t, Monad m) => EventSequencer t Identity m where
+--   (Reflex t, Monad m) => MonadSequenceEvent t Identity m where
 --     seqEventMaybe = return . fmapMaybe runIdentity
 
 class Reflex t => SequenceAccumulator t f | f -> t where
-    seqAccum :: (MonadHold t m, MonadFix m, EventSequencer t m)
+    seqAccum :: (MonadHold t m, MonadFix m, MonadSequenceEvent t m)
              => (a -> b -> Sequenceable m a) -> a -> Event t b -> m (f a)
     seqAccum f = seqAccumMaybe $ \v o -> Just <$> f v o
 
-    seqAccumMaybe :: (MonadHold t m, MonadFix m, EventSequencer t m)
+    seqAccumMaybe :: (MonadHold t m, MonadFix m, MonadSequenceEvent t m)
                   => (a -> b -> Sequenceable m (Maybe a)) -> a -> Event t b -> m (f a)
 
-    seqMapAccum :: (MonadHold t m, MonadFix m, EventSequencer t m)
+    seqMapAccum :: (MonadHold t m, MonadFix m, MonadSequenceEvent t m)
                 => (a -> b -> Sequenceable m (a, c)) -> a -> Event t b -> m (f a, Event t c)
     seqMapAccum f = seqMapAccumMaybe $ \v o -> bimap Just Just <$> f v o
 
-    seqMapAccumMaybe :: (MonadHold t m, MonadFix m, EventSequencer t m)
+    seqMapAccumMaybe :: (MonadHold t m, MonadFix m, MonadSequenceEvent t m)
                      => (a -> b -> Sequenceable m (Maybe a, Maybe c)) -> a -> Event t b -> m (f a, Event t c)
 
-seqMapAccum_ :: forall t m a b c. (MonadHold t m, MonadFix m, EventSequencer t m)
+seqMapAccum_ :: forall t m a b c. (MonadHold t m, MonadFix m, MonadSequenceEvent t m)
              => (a -> b -> Sequenceable m (a, c)) -> a -> Event t b -> m (Event t c)
 seqMapAccum_ f z e = do
     (_ :: Dynamic t a, result) <- seqMapAccum f z e
     return result
 
 seqMapAccumMaybe_ :: forall t m a b c.
-  (MonadHold t m, MonadFix m, EventSequencer t m)
+  (MonadHold t m, MonadFix m, MonadSequenceEvent t m)
   => (a -> b -> Sequenceable m (Maybe a, Maybe c)) -> a -> Event t b -> m (Event t c)
 seqMapAccumMaybe_ f z e = do
     (_ :: Dynamic t a, result) <- seqMapAccumMaybe f z e
@@ -265,19 +225,10 @@ instance Reflex t => SequenceAccumulator t (Dynamic t) where
           da <- holdDyn z $ fmapMaybe fst evt
       return (da, fmapMaybe snd evt)
 
-instance (Reflex t, MonadHold t m, MonadFix m, EventSequencer t m)
-  => EventSequencer t (RandT StdGen m) where
-    type Sequenceable (RandT StdGen m) = RandT StdGen (Sequenceable m)
-    seqEventMaybe rands = liftRandT $ \g -> do
-      let (g1, g2) = split g
-      evt <- seqMapAccumMaybe_ (\g ma -> first Just . swap <$> runRandT ma g) g1 rands
-      return (evt, g2)
-
-
 class
   ( Reflex t
-  , EventSequencer t m
-  , EventSequenceHolder t m
+  , MonadSequenceEvent t m
+  , MonadSequenceHold t m
   , MonadReader (NodeBuilderEnv t) m
   , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
   , MonadSample t m, MonadHold t m, MonadFix m
@@ -320,7 +271,7 @@ infixr 2 -<
 seqHoldFree :: forall t m a.
                ( MonadFix m
                , MonadReader (NodeBuilderEnv t) m
-               , EventSequenceHolder t m )
+               , MonadSequenceHold t m )
             => FreeT (Event t) m a -> m (Event t a)
 seqHoldFree ft = mdo
     let startE = case result0 of
@@ -400,7 +351,7 @@ switchFree f = do
 evt :: ( NodeBuilder t m
        , IsSettable w (Sequenceable m) a (attr w (Sequenceable m) b a) )
     => attr w (Sequenceable m) b a -> WOAttrib' w m (Event t a)
-evt attr = WOAttrib $ \w e -> forEvent_ e $ setter attr w
+evt attr = WOAttrib $ \w e -> seqForEvent_ e $ setter attr w
 
 -- | Transforms a IsSettable attribute to a WOAttribute. This uses lazy read on the incoming Dynamic
 dyn :: ( NodeBuilder t m
@@ -437,9 +388,9 @@ uDyn' :: ( NodeBuilder t m
 uDyn' attr = fromUniqDynamic >$< dyn' attr
 
 -- implement NodeBuilder instance so that we don't need to keep lifting...
--- instance (MonadFix m, MonadHold t m, EventSequencer t m)
---         => EventSequencer t (AccStateT t f s im) where
---     Sequenceable (EventSequencer t m) = AccStateT t f s (Sequenceable m)
+-- instance (MonadFix m, MonadHold t m, MonadSequenceEvent t m)
+--         => MonadSequenceEvent t (AccStateT t f s im) where
+--     Sequenceable (MonadSequenceEvent t m) = AccStateT t f s (Sequenceable m)
 --     seqEventMaybe em = mdo
 --         d <- watch
 --         built <- lift . seqEvent $ flip pushAlways em $ \m -> do
@@ -450,13 +401,13 @@ uDyn' attr = fromUniqDynamic >$< dyn' attr
 --         adjustMaybe $ switch behT
 --         return $ fmapMaybe fst built
 
-instance EventSequencer t m => EventSequencer t (AccStateT t f s m) where
+instance MonadSequenceEvent t m => MonadSequenceEvent t (AccStateT t f s m) where
     type Sequenceable (AccStateT t f s m) = Sequenceable m
     seqEventMaybe = lift . seqEventMaybe
     seqEvent_ = lift . seqEvent_
 
-instance EventSequenceHolder t m
-  => EventSequenceHolder t (AccStateT t f s m) where
+instance MonadSequenceHold t m
+  => MonadSequenceHold t (AccStateT t f s m) where
     type Finalizable (AccStateT t f s m) = Finalizable m
     seqHold ma emb = do
         d <- watch
