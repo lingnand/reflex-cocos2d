@@ -175,10 +175,6 @@ class ( Reflex t, Monad m
     seqForEvent_ :: Event t a -> (a -> Sequenceable m ()) -> m ()
     seqForEvent_ e = seqEvent_ . ffor e
 
--- instance {-# INCOHERENT #-}
---   (Reflex t, Monad m) => MonadSequenceEvent t Identity m where
---     seqEventMaybe = return . fmapMaybe runIdentity
-
 class Reflex t => SequenceAccumulator t f | f -> t where
     seqAccum :: (MonadHold t m, MonadFix m, MonadSequenceEvent t m)
              => (a -> b -> Sequenceable m a) -> a -> Event t b -> m (f a)
