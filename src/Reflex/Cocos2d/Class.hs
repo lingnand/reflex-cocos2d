@@ -51,7 +51,6 @@ module Reflex.Cocos2d.Class
     )
   where
 
-import Data.Tuple (swap)
 import Data.Dependent.Sum (DSum (..))
 import Data.Functor.Identity
 import Data.Functor.Contravariant

@@ -15,6 +15,11 @@
 module Reflex.Cocos2d.Internal
     (
       mainScene
+    , Builder
+    , BuilderBase
+    , hoist
+    , embed
+    , squash
     )
   where
 
@@ -27,7 +32,6 @@ import Control.Monad.State.Strict
 import Control.Monad.Ref
 import Control.Monad.Exception
 import Control.Lens
-import Control.Monad.Morph
 import Reflex
 import Reflex.Host.Class
 
@@ -47,10 +51,10 @@ data BuilderState t m = BuilderState
     , _builderFinalizers  :: IO ()
     }
 
-instance Functor m => Functor (BuilderState t m) where
-    fmap f st = BuilderState (fmap f <$> st^.builderVoidActions) (f <$> st^.builderFinalizers)
+hoistBuilderState :: Reflex t => (m () -> n ()) -> BuilderState t m -> BuilderState t n
+hoistBuilderState f (BuilderState vas fin) = BuilderState (fmap f <$> vas)  fin
 
-instance Monoid (BuilderState t m a) where
+instance Monoid (BuilderState t m) where
     mempty = BuilderState [] (return ())
     (BuilderState va0 fin0) `mappend` (BuilderState va1 fin1) =
       -- the later finalizers should come first
@@ -58,13 +62,13 @@ instance Monoid (BuilderState t m a) where
 
 builderVoidActions ::
   forall t m.
-  Lens (BuilderState t m) (BuilderState t m) [Event t (m ())] [Event t (m ())]
+  Lens' (BuilderState t m) [Event t (m ())]
 builderVoidActions f (BuilderState act fin)
   = fmap (\ act' -> BuilderState act' fin) (f act)
 {-# INLINE builderVoidActions #-}
 builderFinalizers ::
   forall t m.
-  Lens (BuilderState t m) (BuilderState t m) (m ()) (m ())
+  Lens' (BuilderState t m) (IO ())
 builderFinalizers f (BuilderState act fin)
   = fmap (\ fin' -> BuilderState act fin') (f fin)
 {-# INLINE builderFinalizers #-}
@@ -72,6 +76,7 @@ builderFinalizers f (BuilderState act fin)
 newtype Builder t m a = Builder (ReaderT (NodeBuilderEnv t) (StateT (BuilderState t m) m) a)
     deriving ( Monad, Functor, Applicative
              , MonadReader (NodeBuilderEnv t)
+             , MonadState (BuilderState t m)
              , MonadFix, MonadIO
              , MonadException, MonadAsyncException
              , MonadSample t, MonadHold t
@@ -87,14 +92,13 @@ instance MonadRef m => MonadRef (Builder t m) where
     writeRef r = lift . writeRef r
 
 -- run builder with a given env and empty state
-runBuilder :: Monad m
-           => Builder t m a -> NodeBuilderEnv t -> BuilderState t m -> m (a, BuilderState t m)
+runBuilder :: Builder t m a -> NodeBuilderEnv t -> BuilderState t m -> m (a, BuilderState t m)
 runBuilder (Builder builder) env st =
     runStateT (runReaderT builder env) st
 
 instance (Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m, MonadIO m)
   => MonadSequenceEvent t (Builder t m) where
-    Sequenceable (Builder t m) = m
+    type Sequenceable (Builder t m) = m
     seqEvent_ e = Builder $ builderVoidActions %= (e:)
     seqEventMaybe e = do
         run <- view runWithActions
@@ -105,13 +109,15 @@ instance (Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m, Mo
               _ -> return ()
         return eResult
 
-instance MFunctor (Builder t) where
-    hoist f ba = do
-        env <- ask
-        -- XXX: hack, starting with empty state
-        (a, st) <- lift $ f (runBuilder ba env mempty)
-        modify' $ `mappend` (f <$> st)
-        return a
+-- custom hoist instead of MFunctor because we need more constraints
+hoist :: (Reflex t, Monad n)
+      => (forall a. m a -> n a) -> Builder t m b -> Builder t n b
+hoist f ba = do
+    env <- ask
+    -- XXX: hack, starting with empty state
+    (a, st) <- lift $ f (runBuilder ba env mempty)
+    modify' (`mappend` (hoistBuilderState f st))
+    return a
 
 -- for things like RandT, we can achieve that with seqEvent coupled
 -- with hoist, i.e.,
@@ -119,31 +125,45 @@ instance MFunctor (Builder t) where
 -- tf (RandT g m') (Event t a) -> tf m' (Event t a)
 -- tf (tf m') (Maybe a) -> tf (tf m') (Event t a)
 
-instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
-         , MonadIO m, MonadFix m, MonadHold t m ) => MMonad (Builder t) where
-    embed f ba = do
-        env <- ask
-        -- XXX: hack, starting with empty state
-        (a, st) <- f (runBuilder ba env mempty)
-        let newSt = f <$> st
-            run = env ^. runWithActions
-            onNewChildBuilt :: Event t (m ()) -> [Event t (m ())] -> Maybe (Event t (m ()))
-            onNewChildBuilt _ [] = Nothing
-            onNewChildBuilt acc vas = Just $ mergeWith (>>) (acc:reverse vas)
-        -- for each new event, needs to change it to an actual firing event
-        (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
-        seqEvent_ . switch =<< accumMaybe onNewChildBuilt (never :: Event t (m ())) newChildBuilt
-        let newVas' = ffor (newSt^.builderVoidActions) . fmap $ \bd -> do
-              (postBuildE, postBuildTr) <- newEventWithTriggerRef
-              let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
-              (_, builderState) <- runBuilder bd (env & postBuildEvent .~ postBuildE)
-              liftIO $ readRef newChildBuiltTriggerRef
-                        >>= mapM_ (\t -> run ([t ==> builderState^.builderVoidActions], firePostBuild))
-        builderVoidActions ~= (++newVas')
-        -- just attach the finalizers
-        addFinalizer $ newSt^.builderFinalizers
-        return a
+-- we can't implement MMonad because the 'flattening' of Builder would
+-- require more capabilities than just plain Monad
+embed :: forall t m n b.
+         ( Reflex t
+         , MonadRef n, Ref n ~ Ref IO, MonadReflexCreateTrigger t n
+         , MonadIO n, MonadFix n, MonadHold t n )
+      => (forall a. m a -> Builder t n a) -> Builder t m b -> Builder t n b
+embed f ba = do
+      env <- ask
+      -- XXX: hack, starting with empty state
+      (a, st) <- f (runBuilder ba env mempty)
+      -- for each new event, needs to change it to an actual firing event
+      (newChildBuilt, newChildBuiltTriggerRef) <- newEventWithTriggerRef
+      let newSt :: BuilderState t (Builder t n)
+          newSt = hoistBuilderState f st
+          run = env ^. runWithActions
+          onNewChildBuilt :: Event t (n ()) -> [Event t (n ())] -> Maybe (Event t (n ()))
+          onNewChildBuilt _ [] = Nothing
+          onNewChildBuilt acc vas = Just $ mergeWith (>>) (acc:reverse vas)
+          newVas' :: [Event t (n ())]
+          newVas' = ffor (newSt^.builderVoidActions) . fmap $ \bd -> do
+            (postBuildE, postBuildTr) <- newEventWithTriggerRef
+            let firePostBuild = readRef postBuildTr >>= mapM_ (\t -> run ([t ==> ()], return ()))
+            (_, builderState) <- runBuilder bd (env & postBuildEvent .~ postBuildE) mempty
+            liftIO $ readRef newChildBuiltTriggerRef
+                      >>= mapM_ (\t -> run ([t ==> builderState^.builderVoidActions], firePostBuild))
+      newChildVa <- switch <$> accumMaybe onNewChildBuilt (never :: Event t (n ())) newChildBuilt
+      builderVoidActions %= ((newChildVa:) . (newVas'++))
+      -- attach the finalizers
+      -- XXX: for the moment ignore the finalizers from the childs
+      -- as there is no easy way...
+      addFinalizer $ newSt^.builderFinalizers
+      return a
 
+squash :: ( Reflex t
+          , MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
+          , MonadIO m, MonadFix m, MonadHold t m )
+       => Builder t (Builder t m) a -> Builder t m a
+squash = embed id
 
 instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
          , MonadIO m, MonadHold t m )
@@ -173,13 +193,16 @@ instance ( Reflex t, MonadRef m, Ref m ~ Ref IO, MonadReflexCreateTrigger t m
         return (result0, fst <$> newChildBuilt)
     addFinalizer a = Builder $ builderFinalizers %= (a >>)
 
-instance
+-- | A custom class for specifying the requirements on a common builder base
+class
   ( Reflex t
   , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
   , MonadSample t m, MonadHold t m, MonadFix m
   , MonadRef m, Ref m ~ Ref IO
   , MonadIO m
-  ) => NodeBuilder t (Builder t) m where
+  ) => BuilderBase t m where
+
+instance (m ~ HostFrame Spider) => BuilderBase Spider m where
 
 -- | Construct a new scene with a NodeBuilder
 mainScene :: Builder Spider (HostFrame Spider) a -> IO a
