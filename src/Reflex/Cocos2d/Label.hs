@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -26,6 +27,7 @@ module Reflex.Cocos2d.Label
 import Diagrams (V2(..))
 import Control.Monad
 import Control.Monad.Trans
+import Control.Monad.Reader
 
 import Foreign.Hoppy.Runtime (Decodable(..))
 import Graphics.UI.Cocos2d.Common
@@ -36,10 +38,16 @@ import Reflex.Cocos2d.Attributes
 import Reflex.Cocos2d.Node
 import Reflex.Cocos2d.Types
 
-label :: NodeBuilder t m => [Prop Label m] -> m Label
+label ::
+  ( MonadIO m, MonadReader (NodeBuilderEnv t) m
+  , MonadSequenceHold t m, MonadIO (Finalizable m) )
+  => [Prop Label m] -> m Label
 label = addNewChild label_create
 
-label_ :: NodeBuilder t m => [Prop Label m] -> m ()
+label_ ::
+  ( MonadIO m, MonadReader (NodeBuilderEnv t) m
+  , MonadSequenceHold t m, MonadIO (Finalizable m) )
+  => [Prop Label m] -> m ()
 label_ = void . label
 
 ---- Attrs ----
@@ -91,4 +99,3 @@ systemFontSize = hoistA liftIO $ Attrib label_getSystemFontSize label_setSystemF
 -- lineHeight
 -- lineSpacing
 -- additionalKerning
-

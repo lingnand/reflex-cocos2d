@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -192,7 +193,9 @@ instance SpacePtr a s => SpacePtr a (s, x) where
 type SpaceStep = Time
 
 -- | create and run a space at frame rate
-space :: NodeBuilder t m
+space :: ( MonadReader (NodeBuilderEnv t) m, MonadIO m
+         , MonadSequenceHold t m, MonadSequenceEvent t m
+         , MonadIO (Sequenceable m), MonadIO (Finalizable m) )
       => [Prop (Space a) m] -> m (Space a, Event t SpaceStep)
 space props = do
     ts <- view frameTicks
@@ -220,7 +223,10 @@ collisionEnded f (CollisionEvents began ended)
       (\ ended' -> CollisionEvents began ended') (f ended)
 {-# INLINE collisionEnded #-}
 
-getCollisionEvents :: NodeBuilder t m => Space a -> m (CollisionEvents t a)
+getCollisionEvents ::
+  ( MonadReader (NodeBuilderEnv t) m, MonadIO m
+  , MonadReflexCreateTrigger t m, MonadRef m, Ref m ~ Ref IO )
+  => Space a -> m (CollisionEvents t a)
 getCollisionEvents (SPWrap sp) = do
     (eBegin, trBegin) <- newEventWithTriggerRef
     (eSeparate, trSeparate) <- newEventWithTriggerRef
@@ -276,7 +282,8 @@ safeRemove sp e = liftIO $ H.inSpace e >>= \case
     _ -> return ()
 
 -- | NOTE: to add the body to the space, you have to pass in the active := true prop
-body :: NodeBuilder t m
+body :: ( MonadIO m, MonadSequenceHold t m
+        , MonadIO (Finalizable m) )
      => Space a
      -> [Prop (Space a, Body a) m]
      -> m (Body a)
@@ -289,7 +296,8 @@ body wsp props = do
     return wrapped
 
 -- | NOTE: to add the shape to the space, you have to pass in the active := true prop
-shape :: NodeBuilder t m
+shape :: ( MonadIO m, MonadSequenceHold t m
+         , MonadIO (Finalizable m) )
       => Space a
       -> Body a
       -> H.Geometry Float

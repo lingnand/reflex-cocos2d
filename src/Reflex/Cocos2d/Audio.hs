@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Reflex.Cocos2d.Audio
     ( AudioStateCommand(..)
     , AudioInstance
@@ -14,6 +15,7 @@ module Reflex.Cocos2d.Audio
 
 import Data.Dependent.Sum ((==>))
 import Control.Monad.Trans
+import Control.Monad.Reader
 import Control.Lens
 
 import Graphics.UI.Cocos2d.Audio
@@ -33,14 +35,18 @@ playAudio filename props = do
     setProps au props
     return au
 
-getAudioFinishedEvent :: NodeBuilder t m => AudioInstance -> m (Event t ())
+getAudioFinishedEvent ::
+  ( MonadReader (NodeBuilderEnv t) m, MonadReflexCreateTrigger t m )
+  => AudioInstance -> m (Event t ())
 getAudioFinishedEvent id = do
     run <- view runWithActions
     newEventWithTrigger $ \tr -> do
       audioEngine_setFinishCallback id $ \_ _ -> run ([tr ==> ()], return ())
       return $ pure ()
 
-preloadAudio :: NodeBuilder t m => String -> m (Event t Bool)
+preloadAudio ::
+  ( MonadReader (NodeBuilderEnv t) m, MonadReflexCreateTrigger t m )
+  => String -> m (Event t Bool)
 preloadAudio filename = do
     run <- view runWithActions
     newEventWithTrigger $ \tr -> do

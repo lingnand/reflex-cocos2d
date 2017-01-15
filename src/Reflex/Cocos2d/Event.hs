@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecursiveDo #-}
@@ -86,6 +87,7 @@ import qualified Data.Set as S
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.Trans
+import Control.Monad.Reader
 import Control.Monad.Ref
 import Control.Lens hiding (contains)
 
@@ -260,7 +262,10 @@ keyReleased f (KeyboardEvents pressed released)
 
 -- Event listeners
 -- We generally put the listener to priority > scene graph (negative numbers)
-getMouseEvents :: NodeBuilder t m => m (MouseEvents t)
+getMouseEvents ::
+  ( MonadIO m, MonadReader (NodeBuilderEnv t) m
+  , MonadReflexCreateTrigger t m )
+  => m (MouseEvents t)
 getMouseEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -276,7 +281,10 @@ getMouseEvents = do
                 <*> newEventWithTrigger (handleTrigger eventListenerMouse_onMouseMove_set)
                 <*> newEventWithTrigger (handleTrigger eventListenerMouse_onMouseScroll_set)
 
-getTouchEvents :: NodeBuilder t m => m (TouchEvents t)
+getTouchEvents ::
+  ( MonadIO m, MonadReader (NodeBuilderEnv t) m
+  , MonadReflexCreateTrigger t m )
+  => m (TouchEvents t)
 getTouchEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -295,7 +303,10 @@ getTouchEvents = do
                 <*> newEventWithTrigger (handleTrigger eventListenerTouchOneByOne_onTouchEnded_set)
                 <*> newEventWithTrigger (handleTrigger eventListenerTouchOneByOne_onTouchCancelled_set)
 
-getMultiTouchEvents :: NodeBuilder t m => m (MultiTouchEvents t)
+getMultiTouchEvents ::
+  ( MonadIO m, MonadReader (NodeBuilderEnv t) m
+  , MonadReflexCreateTrigger t m )
+  => m (MultiTouchEvents t)
 getMultiTouchEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -312,7 +323,10 @@ getMultiTouchEvents = do
                      <*> newEventWithTrigger (handleTrigger eventListenerTouchAllAtOnce_onTouchesEnded_set)
                      <*> newEventWithTrigger (handleTrigger eventListenerTouchAllAtOnce_onTouchesCancelled_set)
 
-getKeyboardEvents :: NodeBuilder t m => m (KeyboardEvents t)
+getKeyboardEvents ::
+  ( MonadIO m, MonadReader (NodeBuilderEnv t) m
+  , MonadReflexCreateTrigger t m )
+  => m (KeyboardEvents t)
 getKeyboardEvents = do
     run <- view runWithActions
     ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
@@ -324,7 +338,10 @@ getKeyboardEvents = do
     KeyboardEvents <$> newEventWithTrigger (handleTrigger eventListenerKeyboard_onKeyPressed_set)
                    <*> newEventWithTrigger (handleTrigger eventListenerKeyboard_onKeyReleased_set)
 
-getAccelerations :: NodeBuilder t m => m (Event t Acceleration)
+getAccelerations ::
+  ( MonadIO m, MonadReader (NodeBuilderEnv t) m
+  , MonadReflexCreateTrigger t m )
+  => m (Event t Acceleration)
 getAccelerations = do
     run <- view runWithActions
     newEventWithTrigger $ \tr -> do
@@ -336,7 +353,9 @@ getAccelerations = do
       return $ eventDispatcher_removeEventListener ed l
 
 -- | Convenience function to obtain currently held keys
-accumKeysDown :: (Reflex t, MonadHold t m, MonadFix m) => KeyboardEvents t -> m (Dynamic t (S.Set KeyCode))
+accumKeysDown ::
+  (Reflex t, MonadHold t m, MonadFix m)
+  => KeyboardEvents t -> m (Dynamic t (S.Set KeyCode))
 accumKeysDown (KeyboardEvents pressedE releasedE) = do
     let insertE = ffor pressedE $ \k m -> do
                     -- since KeyPressed event can keep firing
@@ -398,8 +417,10 @@ accumKeysDown (KeyboardEvents pressedE releasedE) = do
 --     return e'
 
 -- | NOTE: we can't return the texture because it's an autoreleased object
-loadTexture
-  :: NodeBuilder t m => String -> m (Event t ())
+loadTexture ::
+  ( MonadIO m, MonadReader (NodeBuilderEnv t) m
+  , MonadReflexCreateTrigger t m, MonadRef m, Ref m ~ Ref IO )
+  => String -> m (Event t ())
 loadTexture path = do
     run <- view runWithActions
     -- Since we are not sure if the user would subscribe to the resulting event, we can't just use

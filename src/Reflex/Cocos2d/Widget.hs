@@ -48,6 +48,7 @@ import Data.Dependent.Sum ((==>))
 import Diagrams (V2(..))
 import Control.Monad
 import Control.Monad.Trans
+import Control.Monad.Reader
 import Control.Lens hiding (contains)
 
 import Foreign.Hoppy.Runtime (Decodable(..), CppPtr(..))
@@ -143,7 +144,9 @@ instance HasWidgetTouchEvents (WidgetEvents t) t where
     widgetTouchEvents = weToWTouchEvents
 
 getWidgetTouchEvents ::
-  (NodeBuilder t m, WidgetPtr w)
+  ( WidgetPtr w
+  , Reflex t
+  , MonadReader (NodeBuilderEnv t) m, MonadReflexCreateTrigger t m )
   => w -> m (WidgetTouchEvents t)
 getWidgetTouchEvents w = do
     run <- view runWithActions
@@ -165,7 +168,8 @@ getWidgetTouchEvents w = do
     return $ WidgetTouchEvents beganE movedE endedE cancelledE
 
 getWidgetClicks ::
-  (NodeBuilder t m, WidgetPtr w)
+  ( WidgetPtr w
+  , MonadReader (NodeBuilderEnv t) m, MonadReflexCreateTrigger t m )
   => w -> m (Event t ())
 getWidgetClicks w = do
     run <- view runWithActions
@@ -174,7 +178,9 @@ getWidgetClicks w = do
       return $ pure ()
 
 getWidgetEvents ::
-  (NodeBuilder t m, WidgetPtr w)
+  ( WidgetPtr w
+  , Reflex t
+  , MonadReader (NodeBuilderEnv t) m, MonadReflexCreateTrigger t m )
   => w -> m (WidgetEvents t)
 getWidgetEvents w = WidgetEvents <$> getWidgetTouchEvents w <*> getWidgetClicks w
 
@@ -212,7 +218,11 @@ findLayoutByName :: (MonadIO m, WidgetPtr w) => w -> String -> m (Maybe Layout)
 findLayoutByName = findWidgetByName' downToLayout
 
 -- creating new widgets
-button :: NodeBuilder t m => [Prop Button m] -> m (Button, Event t ())
+button ::
+  ( MonadIO m, MonadReader (NodeBuilderEnv t) m
+  , MonadReflexCreateTrigger t m
+  , MonadSequenceHold t m, MonadIO (Finalizable m) )
+  => [Prop Button m] -> m (Button, Event t ())
 button props = do
     but <- addNewChild button_create props
     we <- getWidgetClicks but

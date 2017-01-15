@@ -27,8 +27,6 @@ module Reflex.Cocos2d.Class
     , seqMapAccum_
     , seqMapAccumMaybe_
 
-    , NodeBuilder
-
     , (-<)
     , postponeCurrent
     , postpone
@@ -40,8 +38,8 @@ module Reflex.Cocos2d.Class
     , waitDynMaybe
     , waitDynMaybe'
     , waitDynMaybe_
-    , switchFreeT'
     , switchFree
+    , switchFreeT
 
     , evt
     , dyn
@@ -59,7 +57,6 @@ import Diagrams (V2)
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Fix
-import Control.Monad.Ref
 import Control.Monad.Trans.Free
 import Control.Monad.Reader
 import Control.Lens
@@ -224,25 +221,6 @@ instance Reflex t => SequenceAccumulator t (Dynamic t) where
           da <- holdDyn z $ fmapMaybe fst evt
       return (da, fmapMaybe snd evt)
 
-class
-  ( Reflex t
-  , MonadSequenceEvent t m
-  , MonadSequenceHold t m
-  , MonadReader (NodeBuilderEnv t) m
-  , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
-  , MonadSample t m, MonadHold t m, MonadFix m
-  , MonadRef m, Ref m ~ Ref IO
-  , MonadIO m
-
-  , MonadReflexCreateTrigger t (Sequenceable m)
-  , MonadSubscribeEvent t (Sequenceable m)
-  , MonadSample t (Sequenceable m), MonadHold t (Sequenceable m)
-  , MonadIO (Sequenceable m), MonadFix (Sequenceable m)
-  , MonadRef (Sequenceable m), Ref (Sequenceable m) ~ Ref IO
-
-  , MonadIO (Finalizable m)
-  ) => NodeBuilder t m | m -> t where
-
 -- Helper
 -- | Convert Dynamic to an Event that carries the first value in postBuild
 postponeCurrent :: (Reflex t, MonadReader (NodeBuilderEnv t) m)
@@ -328,39 +306,41 @@ switchFreeT' hoistM hoistPush ft = hoistM (runFreeT ft) >>= \case
                             Free ie -> return ie
 
 -- -- | Merge a deeply nested Event into a single Event
-switchFree :: (Reflex t, MonadHold t m, MonadReader (NodeBuilderEnv t) m)
-           => Free (Event t) a -> m (Event t a)
+switchFree ::
+  (Reflex t, MonadHold t m, MonadReader (NodeBuilderEnv t) m)
+  => Free (Event t) a -> m (Event t a)
 switchFree f = do
     let hoist (Identity x) = return x
     switchFreeT' hoist hoist f >>= \case
       Pure a -> postpone a
       Free e -> return e
 
--- switchFreeT :: NodeBuilder t m => FreeT (Event t) (PushM t) a -> m (Event t a)
--- switchFreeT f = do
---     e <- view postBuildEvent
---     let e' = flip pushAlways e $ \_ -> switchFreeT' id id f >>= \case
---           Pure a -> return $ a <$ e
---           Free e -> return e
---     switchPromptly never e'
---
---
+switchFreeT ::
+  ( MonadReader (NodeBuilderEnv t) m
+  , Reflex t, MonadHold t m )
+  => FreeT (Event t) (PushM t) a -> m (Event t a)
+switchFreeT f = do
+    e <- view postBuildEvent
+    let e' = flip pushAlways e $ \_ -> switchFreeT' id id f >>= \case
+          Pure a -> return $ a <$ e
+          Free e -> return e
+    switchPromptly never e'
 
 -- Attributes
-evt :: ( NodeBuilder t m
+evt :: ( MonadSequenceEvent t m
        , IsSettable w (Sequenceable m) a (attr w (Sequenceable m) b a) )
     => attr w (Sequenceable m) b a -> WOAttrib' w m (Event t a)
 evt attr = WOAttrib $ \w e -> seqForEvent_ e $ setter attr w
 
 -- | Transforms a IsSettable attribute to a WOAttribute. This uses lazy read on the incoming Dynamic
-dyn :: ( NodeBuilder t m
+dyn :: ( MonadSequenceEvent t m, MonadReader (NodeBuilderEnv t) m
        , IsSettable w (Sequenceable m) a (attr w (Sequenceable m) b a) )
     => attr w (Sequenceable m) b a -> WOAttrib' w m (Dynamic t a)
 dyn attr = WOAttrib $ \w -> setter evtattr w <=< postponeCurrent
   where evtattr = evt attr
 
 
-uDyn :: ( NodeBuilder t m
+uDyn :: ( MonadSequenceEvent t m, MonadReader (NodeBuilderEnv t) m
         , IsSettable w (Sequenceable m) a (attr w (Sequenceable m) b a)
         , Eq a )
      => attr w (Sequenceable m) b a -> WOAttrib' w m (UniqDynamic t a)
@@ -369,7 +349,9 @@ uDyn = (fromUniqDynamic >$<) . dyn
 -- | Similar to `dyn`, but applies strict read
 -- XXX: nasty constraints to allow 'c' to be instantiated as different types within the function
 dyn' :: forall attr w t m b a.
-        ( NodeBuilder t m
+        ( MonadSequenceEvent t m
+        , MonadIO m, MonadSample t m
+        , MonadIO (Sequenceable m)
         , IsSettable w (Sequenceable m) a (attr w (Sequenceable m) b a)
         , IsSettable w m a (attr w m b a) )
      => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
@@ -378,27 +360,15 @@ dyn' attr = WOAttrib $ \w d -> do
               setter attr w =<< sample (current d)
               setter (evt (attr :: attr w (Sequenceable m) b a)) w (updated d)
 
-uDyn' :: ( NodeBuilder t m
+uDyn' :: ( MonadSequenceEvent t m
+         , MonadIO m, MonadSample t m
+         , MonadIO (Sequenceable m)
          , IsSettable w (Sequenceable m) a (attr w (Sequenceable m) b a)
          , IsSettable w m a (attr w m b a)
          , Eq a )
       => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
       -> WOAttrib' w m (UniqDynamic t a)
 uDyn' attr = fromUniqDynamic >$< dyn' attr
-
--- implement NodeBuilder instance so that we don't need to keep lifting...
--- instance (MonadFix m, MonadHold t m, MonadSequenceEvent t m)
---         => MonadSequenceEvent t (AccStateT t f s im) where
---     Sequenceable (MonadSequenceEvent t m) = AccStateT t f s (Sequenceable m)
---     seqEventMaybe em = mdo
---         d <- watch
---         built <- lift . seqEvent $ flip pushAlways em $ \m -> do
---                       t <- sample behT
---                       return $ _runAccStateT m d [t]
---         let et = (mergeWith composeMaybe . snd) <$> built
---         behT :: Behavior t (Event t (s -> Maybe s)) <- hold (never :: Event t (s -> Maybe s)) et
---         adjustMaybe $ switch behT
---         return $ fmapMaybe fst built
 
 instance MonadSequenceEvent t m => MonadSequenceEvent t (AccStateT t f s m) where
     type Sequenceable (AccStateT t f s m) = Sequenceable m
@@ -417,5 +387,3 @@ instance MonadSequenceHold t m
         switchPromptly tz et >>= adjustMaybe
         return (a, fst <$> erb)
     addFinalizer = lift . addFinalizer
-
-instance NodeBuilder t m => NodeBuilder t (AccStateT t f s m) where
