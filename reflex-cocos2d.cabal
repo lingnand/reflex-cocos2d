@@ -48,6 +48,7 @@ library
                      , cocos2d-hs
                      , Hipmunk
                      , StateVar
+                     , MonadRandom
                      -- TODO: integrate the func into cocos2d-hs?
                      , hoppy-runtime
   hs-source-dirs:      src

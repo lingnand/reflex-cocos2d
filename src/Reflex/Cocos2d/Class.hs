@@ -27,6 +27,11 @@ module Reflex.Cocos2d.Class
     , seqMapAccum_
     , seqMapAccumMaybe_
 
+    , BuilderBase
+    , BuilderMFunctor(..)
+    , BuilderMMonad(..)
+    , squash
+
     , (-<)
     , postponeCurrent
     , postpone
@@ -59,6 +64,7 @@ import Control.Monad.Trans
 import Control.Monad.Fix
 import Control.Monad.Trans.Free
 import Control.Monad.Reader
+import Control.Monad.Ref
 import Control.Lens
 import Reflex
 import Reflex.Host.Class
@@ -202,6 +208,27 @@ seqMapAccumMaybe_ :: forall t m a b c.
 seqMapAccumMaybe_ f z e = do
     (_ :: Dynamic t a, result) <- seqMapAccumMaybe f z e
     return result
+
+-- | A custom class for specifying the requirements on a common builder base
+class
+  ( Reflex t
+  , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
+  , MonadSample t m, MonadHold t m, MonadFix m
+  , MonadRef m, Ref m ~ Ref IO
+  , MonadIO m
+  ) => BuilderBase t m where
+
+instance (m ~ HostFrame Spider) => BuilderBase Spider m where
+
+class MonadTrans tf => BuilderMFunctor t tf | tf -> t where
+    hoist :: BuilderBase t n => (forall a. m a -> n a) -> tf m b -> tf n b
+
+class BuilderMFunctor t tf => BuilderMMonad t tf | tf -> t where
+    embed :: BuilderBase t n => (forall a. m a -> tf n a) -> tf m b -> tf n b
+
+squash :: (BuilderBase t m, BuilderMMonad t tf)
+       => tf (tf m) a -> tf m a
+squash = embed id
 
 instance Reflex t => SequenceAccumulator t (Dynamic t) where
     seqAccumMaybe f z e = do
@@ -383,3 +410,5 @@ instance MonadSequenceHold t m
         switchPromptly tz et >>= adjustMaybe
         return (a, fst <$> erb)
     addFinalizer = lift . addFinalizer
+
+
