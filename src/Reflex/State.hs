@@ -67,6 +67,8 @@ watch = AccStateT . lift $ ask
 watches :: (Functor f, Monad m) => (s -> a) -> AccStateT t f s m (f a)
 watches f = fmap f <$> watch
 
+
+-- | An alternative f <=< g that runs f even if g gives back Nothing
 {-# INLINE composeMaybe #-}
 composeMaybe :: (a -> Maybe a) -> (a -> Maybe a) -> (a -> Maybe a)
 composeMaybe f g a

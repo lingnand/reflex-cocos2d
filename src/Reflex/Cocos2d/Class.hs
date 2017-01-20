@@ -31,6 +31,7 @@ module Reflex.Cocos2d.Class
     , BuilderMFunctor(..)
     , BuilderMMonad(..)
     , squash
+    , squashAccStateTT
 
     , (-<)
     , postponeCurrent
@@ -54,7 +55,7 @@ module Reflex.Cocos2d.Class
     )
   where
 
-import Data.Dependent.Sum (DSum (..))
+import Data.Dependent.Sum (DSum (..), (==>))
 import Data.Functor.Identity
 import Data.Functor.Contravariant
 import Data.Bifunctor
@@ -221,12 +222,12 @@ class
 instance (m ~ HostFrame Spider) => BuilderBase Spider m where
 
 class MonadTrans tf => BuilderMFunctor t tf | tf -> t where
-    hoist :: BuilderBase t n => (forall a. m a -> n a) -> tf m b -> tf n b
+    hoist :: (Monad m, BuilderBase t n) => (forall a. m a -> n a) -> tf m b -> tf n b
 
 class BuilderMFunctor t tf => BuilderMMonad t tf | tf -> t where
-    embed :: BuilderBase t n => (forall a. m a -> tf n a) -> tf m b -> tf n b
+    embed :: (Monad m, BuilderBase t n) => (forall a. m a -> tf n a) -> tf m b -> tf n b
 
-squash :: (BuilderBase t m, BuilderMMonad t tf)
+squash :: (BuilderBase t m, BuilderMMonad t tf, Monad (tf m))
        => tf (tf m) a -> tf m a
 squash = embed id
 
@@ -411,4 +412,45 @@ instance MonadSequenceHold t m
         return (a, fst <$> erb)
     addFinalizer = lift . addFinalizer
 
+
+instance BuilderMFunctor t (AccStateT t f s) where
+    hoist f acc = do
+      fa <- watch
+      (a, evts) <- lift . f $ _runAccStateT acc fa []
+      mapM_ adjustMaybe evts
+      return a
+
+instance BuilderMMonad t (AccStateT t f s) where
+    embed f acc = do
+      fa <- watch
+      (a, evts) <- f (_runAccStateT acc fa [])
+      mapM_ adjustMaybe evts
+      return a
+
+-- | Squash a transformer stack with AccStateT on top
+squashAccStateTT ::
+  forall t tf f s m a.
+  ( Monad (tf (AccStateT t f s (tf m)))
+  , BuilderBase t (tf m)
+  , BuilderMMonad t tf
+  , MonadReader (NodeBuilderEnv t) (tf m)
+  , BuilderBase t m )
+  => AccStateT t f s (tf (AccStateT t f s (tf m))) a -> AccStateT t f s (tf m) a
+squashAccStateTT = embed $ \tfm -> do
+    fa <- watch
+    run <- view runWithActions
+    (newAdjusters, newAdjustersTriggerRef) <- newEventWithTriggerRef
+    let embedF :: AccStateT t f s (tf m) b -> tf m b
+        embedF ac = do
+          (a, evts) <- _runAccStateT ac fa []
+          -- XXX: a bit of a hack here to use Events to transfer state
+          liftIO $ readRef newAdjustersTriggerRef
+                    >>= mapM_ (\t -> run ([t ==> evts], return ()))
+          return a
+    a <- lift $ embed embedF tfm
+    let onNewAdjusters _ [] = Nothing
+        onNewAdjusters adj adjs = Just $! mergeWith composeMaybe (adjs++[adj])
+    adjDyn <- accumMaybe onNewAdjusters never newAdjusters
+    adjustMaybe $ switchPromptlyDyn adjDyn
+    return a
 
