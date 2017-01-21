@@ -63,7 +63,7 @@ import Data.Bifunctor
 import Diagrams (V2)
 import Control.Monad
 import Control.Monad.Trans
-import Control.Monad.Fix
+import Control.Monad.Random
 import Control.Monad.Trans.Free
 import Control.Monad.Reader
 import Control.Monad.Ref
@@ -453,3 +453,17 @@ squashAccStateTT = embed $ \tfm -> do
     adjustMaybe $ switchPromptlyDyn adjDyn
     return a
 
+-- additional instances for RandT
+
+instance MonadRef m => MonadRef (RandT g m) where
+    type Ref (RandT g m) = Ref m
+    newRef = lift . newRef
+    readRef = lift . readRef
+    writeRef r = lift . writeRef r
+
+instance MonadReflexCreateTrigger t m => MonadReflexCreateTrigger t (RandT g m) where
+    newEventWithTrigger = lift . newEventWithTrigger
+    newFanEventWithTrigger f = lift $ newFanEventWithTrigger f
+
+instance MonadSubscribeEvent t m => MonadSubscribeEvent t (RandT g m) where
+    subscribeEvent = lift . subscribeEvent
