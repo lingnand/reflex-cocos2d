@@ -1,3 +1,4 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -210,16 +211,14 @@ seqMapAccumMaybe_ f z e = do
     (_ :: Dynamic t a, result) <- seqMapAccumMaybe f z e
     return result
 
--- | A custom class for specifying the requirements on a common builder base
-class
+-- | A set of constraints for a common builder base
+type BuilderBase t m =
   ( Reflex t
   , MonadReflexCreateTrigger t m, MonadSubscribeEvent t m
   , MonadSample t m, MonadHold t m, MonadFix m
   , MonadRef m, Ref m ~ Ref IO
   , MonadIO m
-  ) => BuilderBase t m where
-
-instance (m ~ HostFrame Spider) => BuilderBase Spider m where
+  )
 
 class MonadTrans tf => BuilderMFunctor t tf | tf -> t where
     hoist :: (Monad m, BuilderBase t n) => (forall a. m a -> n a) -> tf m b -> tf n b
