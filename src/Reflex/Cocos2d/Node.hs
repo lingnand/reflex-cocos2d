@@ -91,7 +91,9 @@ addNewChild factory props = do
   setProps n props
   p <- view parent
   liftIO $ node_addChild p n
-  addFinalizer . liftIO $ node_removeChild p n
+  addFinalizer . liftIO $ do
+    putStrLn "[debug] removing Node!"
+    node_removeChild p n
   return n
 
 node :: ( MonadIO m, MonadReader (NodeBuilderEnv t) m

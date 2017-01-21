@@ -200,7 +200,9 @@ space :: ( MonadReader (NodeBuilderEnv t) m, MonadIO m
 space props = do
     ts <- view frameTicks
     sp <- liftIO H.newSpace
-    addFinalizer  . liftIO $ H.freeSpace sp
+    addFinalizer  . liftIO $ do
+      putStrLn "[debug] removing Space!"
+      H.freeSpace sp
     let wrapped = SPWrap sp
     setProps wrapped props
     fmap (wrapped,) . seqForEvent ts $ \dt -> liftIO $ do
@@ -291,7 +293,9 @@ body wsp props = do
     bd <- liftIO $ H.newBody (1/0) (1/0)
     -- add a finalizer so that if the body is still in the space, remove it
     let wrapped = BWrap bd
-    addFinalizer $ safeRemove wsp wrapped
+    addFinalizer $ do
+      liftIO $ putStrLn "[debug] removing Body!"
+      safeRemove wsp wrapped
     setProps (wsp, wrapped) props
     return wrapped
 
@@ -314,7 +318,9 @@ shape wsp (BWrap b) geo props = do
     let wrapped = SWrap sh
     -- XXX: removing shapes one by one with recompute is potentially
     -- expensive...?
-    addFinalizer $ safeRemove wsp wrapped
+    addFinalizer $ do
+      liftIO $ putStrLn "[debug] removing Shape!"
+      safeRemove wsp wrapped
     setProps (wsp, wrapped) props
     return wrapped
 

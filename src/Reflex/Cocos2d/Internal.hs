@@ -150,6 +150,7 @@ instance BuilderMMonad t (NodeBuilder t) where
         addFinalizer $ do
           -- get the current combined finalizer and run it
           (_, currentFin) <- sample (current stateDyn)
+          liftIO $ putStrLn "[debug]: running combined finalizer from new child built"
           currentFin
           -- XXX: throw away the builder state: we assume the finalizers should be simple things
           void $ runNodeBuilder (newSt^.builderFinalizers) env mempty
