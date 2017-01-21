@@ -144,7 +144,7 @@ instance BuilderMMonad t (NodeBuilder t) where
               liftIO $ readRef newChildBuiltTriggerRef
                         >>= mapM_ (\t -> run ([t ==> builderState], firePostBuild))
         stateDyn <- accum onNewChildBuilt (never :: Event t (n ()), return ()) newChildBuilt
-        let newChildVa = switchPromptlyDyn (fst <$> stateDyn)
+        let newChildVa = switch $ fst <$> current stateDyn
         builderVoidActions %= ((newChildVa:) . (newVas'++))
         -- attach the finalizers
         addFinalizer $ do
