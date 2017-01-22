@@ -449,8 +449,8 @@ squashAccStateTT = embed $ \tfm -> do
     a <- lift $ embed embedF tfm
     let onNewAdjusters _ [] = Nothing
         onNewAdjusters adj adjs = Just $! mergeWith composeMaybe (adjs++[adj])
-    adjDyn <- accumMaybe onNewAdjusters never newAdjusters
-    adjustMaybe . switch $ current adjDyn
+    adjBeh <- accumMaybe onNewAdjusters never newAdjusters
+    adjustMaybe $ switch adjBeh
     return a
 
 -- additional instances for RandT

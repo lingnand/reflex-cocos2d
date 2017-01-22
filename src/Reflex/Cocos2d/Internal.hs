@@ -143,13 +143,13 @@ instance BuilderMMonad t (NodeBuilder t) where
               (_, builderState) <- runNodeBuilder bd (env & postBuildEvent .~ postBuildE) mempty
               liftIO $ readRef newChildBuiltTriggerRef
                         >>= mapM_ (\t -> run ([t ==> builderState], firePostBuild))
-        stateDyn <- accum onNewChildBuilt (never :: Event t (n ()), return ()) newChildBuilt
-        let newChildVa = switch $ fst <$> current stateDyn
+        stateBeh <- accum onNewChildBuilt (never :: Event t (n ()), return ()) newChildBuilt
+        let newChildVa = switch $ fst <$> stateBeh
         builderVoidActions %= ((newChildVa:) . (newVas'++))
         -- attach the finalizers
         addFinalizer $ do
           -- get the current combined finalizer and run it
-          (_, currentFin) <- sample (current stateDyn)
+          (_, currentFin) <- sample stateBeh
           liftIO $ putStrLn "[debug]: running combined finalizer from new child built"
           currentFin
           -- XXX: throw away the builder state: we assume the finalizers should be simple things
