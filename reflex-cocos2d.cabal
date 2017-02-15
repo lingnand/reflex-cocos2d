@@ -25,6 +25,7 @@ library
                      , Reflex.Cocos2d.Chipmunk
                      , Reflex.Extra
                      , Reflex.State
+                     , Data.Pool
   -- other-modules:       
   ghc-options:         -Wall -fno-warn-orphans -fno-warn-name-shadowing
   -- ghc-options:         -w -fprint-potential-instances

@@ -57,6 +57,15 @@ modulate limit = mapAccumMaybe_ f (0, limit)
         if sum > l then (Just (0  , limit-(sum-l)) , Just sum)
                    else (Just (sum, l            ) , Nothing )
 
+-- unfoldr :: (b -> Maybe (b, a)) -> b -> [a]
+--
+-- unfoldE :: Event t (b -> Maybe (b, a)) -> b -> Dynamic t [a]
+--
+-- commute :: Event t (Maybe a -> Maybe b) -> Event t (Maybe b -> Maybe a)
+--         -> ([a], [b])
+--         -> m (Dynamic t ([a], [b]))
+
+
 -- | Simple stack that responds to Events
 stack :: (Reflex t, MonadHold t m, MonadFix m)
       => Event t (Maybe a -> b) -- ^ the request Event for taking items out / popping
@@ -79,6 +88,9 @@ stack reqs z input = do
             se' = fmapMaybe fst e'
         b' <- hold z se'
     return (unsafeDynamic b' se', fmapMaybe snd e')
+
+--          workerFunc                          input           dynamically resized list of workers where we get the output
+-- (allocatedInput -> m (Event t output)) -> Event t a -> Dynamic t [Event t output]
 
 -- | Distribute a upstream 'task' Event into a list of 'worker' Events, such that
 -- * each input task is sent to only one of the workers
