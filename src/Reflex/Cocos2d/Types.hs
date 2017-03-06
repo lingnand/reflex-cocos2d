@@ -28,7 +28,7 @@ import Control.Lens
 import Data.Colour
 import Data.Colour.Names
 
-import Foreign.Hoppy.Runtime (Decodable(..))
+import Graphics.UI.Cocos2d (Decodable(..))
 import Graphics.UI.Cocos2d.Event
 
 data Mouse = Mouse

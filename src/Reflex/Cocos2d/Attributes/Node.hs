@@ -1,21 +1,7 @@
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances #-}
-module Reflex.Cocos2d.Node
-    ( node
-    , node_
-    , layer
-    , layer_
-    , layerColor
-    , layerColor_
-    , sprite
-    , sprite_
-    -- attrs --
-    , anchor
+module Reflex.Cocos2d.Attributes.Node
+    ( anchor
     , anchorX
     , anchorY
     , skew
@@ -40,104 +26,22 @@ module Reflex.Cocos2d.Node
     , flipped
     , flippedX
     , flippedY
-    -- utils --
-    , getChildByName
-    , getChildSpriteByName
-    , getChildButtonByName
-    , getChildTextByName
-    , getChildLayoutByName
-    -- helper --
-    , addNewChild
-    -- re-export --
-    , Node
-    , Layer
-    , LayerColor
-    , Sprite
-    , Texture2D
-
-    , NodePtr(..)
-    , LayerPtr
-    , LayerColorPtr
-    , SpritePtr
     )
   where
 
 import Data.Colour
 import Control.Monad
 import Control.Monad.Trans
-import Control.Monad.Reader
-import Control.Lens hiding (flipped, over)
+import Control.Lens ((^.))
+
 import Diagrams (Point(..), V2(..), (@@), deg)
-import Graphics.UI.Cocos2d.Common
-import Graphics.UI.Cocos2d.Texture
+import Graphics.UI.Cocos2d (Decodable(..), nullptr)
 import Graphics.UI.Cocos2d.Node
-import Graphics.UI.Cocos2d.Layer
-import Graphics.UI.Cocos2d.Widget
-
--- import Graphics.UI.Cocos2d.Action
 import Graphics.UI.Cocos2d.Sprite
-import Foreign.Hoppy.Runtime (Decodable(..), CppPtr(..))
-import Reflex.Cocos2d.Class
-import Reflex.Cocos2d.Attributes
+import Graphics.UI.Cocos2d.Texture
+import Graphics.UI.Cocos2d.Common
 
--- * Node
-addNewChild ::
-  ( NodePtr n
-  , MonadIO m, MonadReader (NodeBuilderEnv t) m
-  , MonadSequenceHold t m, MonadIO (Finalizable m) )
-  => IO n -> [Prop n m] -> m n
-addNewChild factory props = do
-  n <- liftIO factory
-  setProps n props
-  p <- view parent
-  liftIO $ node_addChild p n
-  addFinalizer . liftIO $ do
-    putStrLn "[debug] removing Node!"
-    node_removeChild p n
-  return n
-
-node :: ( MonadIO m, MonadReader (NodeBuilderEnv t) m
-        , MonadSequenceHold t m, MonadIO (Finalizable m) )
-     => [Prop Node m] -> m Node
-node = addNewChild node_create
-
-node_ :: ( MonadIO m, MonadReader (NodeBuilderEnv t) m
-         , MonadSequenceHold t m, MonadIO (Finalizable m) )
-      => [Prop Node m] -> m ()
-node_ = void . node
-
-layer :: ( MonadIO m, MonadReader (NodeBuilderEnv t) m
-         , MonadSequenceHold t m, MonadIO (Finalizable m) )
-      => [Prop Layer m] -> m Layer
-layer = addNewChild layer_create
-
-layer_ :: ( MonadIO m, MonadReader (NodeBuilderEnv t) m
-          , MonadSequenceHold t m, MonadIO (Finalizable m) )
-       => [Prop Layer m] -> m ()
-layer_ = void . layer
-
-layerColor :: ( MonadIO m, MonadReader (NodeBuilderEnv t) m
-              , MonadSequenceHold t m, MonadIO (Finalizable m) )
-           => [Prop LayerColor (m)] -> m LayerColor
-layerColor = addNewChild layerColor_create
-
-layerColor_ :: ( MonadIO m, MonadReader (NodeBuilderEnv t) m
-            , MonadSequenceHold t m, MonadIO (Finalizable m) )
-            => [Prop LayerColor (m)] -> m ()
-layerColor_ = void . layerColor
-
--- * Sprite
-
-sprite :: ( MonadIO m, MonadReader (NodeBuilderEnv t) m
-          , MonadSequenceHold t m, MonadIO (Finalizable m) )
-       => [Prop Sprite (m)] -> m Sprite
-sprite = addNewChild sprite_create
-
-sprite_ :: ( MonadIO m, MonadReader (NodeBuilderEnv t) m
-           , MonadSequenceHold t m, MonadIO (Finalizable m) )
-        => [Prop Sprite (m)] -> m ()
-sprite_ = void . sprite
-
+import Reflex.Cocos2d.Attributes.Base
 
 ---- Various Attributes ----
 instance {-# OVERLAPPABLE #-} (MonadIO m, NodePtr n) => HasRWPositionAttrib n m where
@@ -211,26 +115,26 @@ visible = hoistA liftIO $ Attrib node_isVisible node_setVisible
 color :: (MonadIO m, NodePtr n) => Attrib' n m (Colour Float)
 color = hoistA liftIO $ Attrib (decode <=< node_getColor) node_setColor
 
-node_getOpacityInFloat :: NodePtr n => n -> IO Float
-node_getOpacityInFloat n = (/ 255) . fromIntegral <$> node_getOpacity n
+nodeGetOpacityInFloat :: NodePtr n => n -> IO Float
+nodeGetOpacityInFloat n = (/ 255) . fromIntegral <$> node_getOpacity n
 
-node_setOpacityInFloat :: NodePtr n => n -> Float -> IO ()
-node_setOpacityInFloat n a = node_setOpacity n (round $ a * 255)
+nodeSetOpacityInFloat :: NodePtr n => n -> Float -> IO ()
+nodeSetOpacityInFloat n a = node_setOpacity n (round $ a * 255)
 
 opacity :: (MonadIO m, NodePtr n) => Attrib' n m Float
-opacity = hoistA liftIO $ Attrib node_getOpacityInFloat node_setOpacityInFloat
+opacity = hoistA liftIO $ Attrib nodeGetOpacityInFloat nodeSetOpacityInFloat
 
 alphaColor :: (MonadIO m, NodePtr n) => Attrib' n m (AlphaColour Float)
 alphaColor = hoistA liftIO $ Attrib getter setter
   where
     getter n =
-      withOpacity <$> (node_getColor n >>= decode) <*> node_getOpacityInFloat n
+      withOpacity <$> (node_getColor n >>= decode) <*> nodeGetOpacityInFloat n
     setter n ac = do
       let a = alphaChannel ac
           c
             | a > 0 = darken (recip a) (ac `over` black)
             | otherwise = black
-      node_setColor n c >> node_setOpacityInFloat n a
+      node_setColor n c >> nodeSetOpacityInFloat n a
 
 cascadeColor :: (MonadIO m, NodePtr n) => Attrib' n m Bool
 cascadeColor = hoistA liftIO $ Attrib node_isCascadeColorEnabled node_setCascadeColorEnabled
@@ -287,26 +191,4 @@ flippedX = hoistA liftIO $ Attrib sprite_isFlippedX sprite_setFlippedX
 flippedY :: (MonadIO m, SpritePtr n) => Attrib' n m Bool
 flippedY = hoistA liftIO $ Attrib sprite_isFlippedY sprite_setFlippedY
 
------ Utils
-getChildByName' :: (MonadIO m, NodeValue n) => (Node -> a) -> n -> String -> m (Maybe a)
-getChildByName' convert n name =
-  liftIO $
-  do n <- node_getChildByName n name
-     if n == nullptr
-       then return Nothing
-       else return . Just $ convert n
 
-getChildByName :: (MonadIO m, NodeValue n) => n -> String -> m (Maybe Node)
-getChildByName = getChildByName' id
-
-getChildSpriteByName :: (MonadIO m, NodeValue n) => n -> String -> m (Maybe Sprite)
-getChildSpriteByName = getChildByName' downToSprite
-
-getChildButtonByName :: (MonadIO m, NodeValue n) => n -> String -> m (Maybe Button)
-getChildButtonByName = getChildByName' downToButton
-
-getChildTextByName :: (MonadIO m, NodeValue n) => n -> String -> m (Maybe Text)
-getChildTextByName = getChildByName' downToText
-
-getChildLayoutByName :: (MonadIO m, NodeValue n) => n -> String -> m (Maybe Layout)
-getChildLayoutByName = getChildByName' downToLayout

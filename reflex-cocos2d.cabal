@@ -11,22 +11,28 @@ cabal-version:       >=1.10
 
 
 library
-  exposed-modules:     Reflex.Cocos2d
-                     , Reflex.Cocos2d.Class
+  exposed-modules:     Reflex.Cocos2d.Finalize.Base
+                     , Reflex.Cocos2d.Finalize.Class
+                     , Reflex.Cocos2d.Builder.Base
+                     , Reflex.Cocos2d.Builder.Class
+                     , Reflex.Cocos2d.Accum.Class
+                     --   Reflex.Cocos2d
+                     -- , Reflex.Cocos2d.Class
                      , Reflex.Cocos2d.Internal
-                     , Reflex.Cocos2d.Node
+                     -- , Reflex.Cocos2d.Node
                      , Reflex.Cocos2d.Types
-                     , Reflex.Cocos2d.Attributes
+                     , Reflex.Cocos2d.Attributes.Base
+                     , Reflex.Cocos2d.Attributes.Node
                      , Reflex.Cocos2d.Event
-                     , Reflex.Cocos2d.Label
-                     , Reflex.Cocos2d.Widget
-                     , Reflex.Cocos2d.Audio
-                     , Reflex.Cocos2d.CocoStudio
-                     , Reflex.Cocos2d.Chipmunk
-                     , Reflex.Extra
+                     -- , Reflex.Cocos2d.Label
+                     -- , Reflex.Cocos2d.Widget
+                     -- , Reflex.Cocos2d.Audio
+                     -- , Reflex.Cocos2d.CocoStudio
+                     -- , Reflex.Cocos2d.Chipmunk
+                     -- , Reflex.Extra
                      , Reflex.State
                      , Data.Pool
-  -- other-modules:       
+  other-modules:       Reflex.Cocos2d.FastTriggerEvent.Class
   ghc-options:         -Wall -fno-warn-orphans -fno-warn-name-shadowing
   -- ghc-options:         -w -fprint-potential-instances
   -- -Wall -fno-warn-orphans -fno-warn-name-shadowing
@@ -36,6 +42,11 @@ library
                      , colour
                      , containers
                      , mtl
+                     , transformers-base
+                     , monad-control
+                     , prim-uniq
+                     , primitive
+                     , dependent-map
                      , ref-tf
                      , dependent-sum
                      , diagrams-lib
@@ -50,7 +61,5 @@ library
                      , Hipmunk
                      , StateVar
                      , MonadRandom
-                     -- TODO: integrate the func into cocos2d-hs?
-                     , hoppy-runtime
   hs-source-dirs:      src
   default-language:    Haskell2010

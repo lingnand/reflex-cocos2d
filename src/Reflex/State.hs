@@ -1,9 +1,6 @@
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -12,7 +9,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE RecursiveDo #-}
 module Reflex.State
-    ( AccStateT(AccStateT)
+    ( AccStateT(..)
     , DynStateT
     , EventStateT
     , UniqDynStateT
@@ -34,16 +31,17 @@ module Reflex.State
   where
 
 
+import Data.Maybe
 import Control.Lens
 import Control.Monad.Fix
 import Control.Monad.Trans
+import Control.Monad.Trans.Control
 import Control.Monad.Ref
 import Control.Monad.Reader
 import Control.Monad.Exception
 import Control.Monad.State.Strict
 import Reflex
 import Reflex.Host.Class
-import Data.Maybe
 
 ---- generalization: AccStateT
 ---- the input is always the same - like a reader
@@ -53,7 +51,6 @@ newtype AccStateT t f s m a = AccStateT (StateT [Event t (s -> Maybe s)] (Reader
     , MonadFix, MonadIO
     , MonadException, MonadAsyncException
     , MonadSample t, MonadHold t
-    , MonadReflexCreateTrigger t, MonadSubscribeEvent t
     )
 
 type DynStateT t = AccStateT t (Dynamic t)
@@ -61,19 +58,65 @@ type EventStateT t = AccStateT t (Event t)
 type UniqDynStateT t = AccStateT t (UniqDynamic t)
 type BehaviorStateT t = AccStateT t (Behavior t)
 
+instance MonadTrans (AccStateT t f s) where
+    lift = AccStateT . lift . lift
+
+instance MonadTransControl (AccStateT t f s) where
+    type StT (AccStateT t f s) a = (a, [Event t (s -> Maybe s)])
+    liftWith f = AccStateT . StateT $ \s -> ReaderT $ \r ->
+      (\x -> (x, s)) <$> f (\t -> _runAccStateT t r s)
+    restoreT mSt = AccStateT . StateT $ \_ -> ReaderT $ const mSt
+
+instance MonadReflexCreateTrigger t m => MonadReflexCreateTrigger t (AccStateT t f s m) where
+    {-# INLINABLE newEventWithTrigger #-}
+    newEventWithTrigger = lift . newEventWithTrigger
+    {-# INLINABLE newFanEventWithTrigger #-}
+    newFanEventWithTrigger f = lift $ newFanEventWithTrigger f
+
+instance MonadRef m => MonadRef (AccStateT t f s m) where
+    type Ref (AccStateT t f s m) = Ref m
+    {-# INLINABLE newRef #-}
+    newRef = lift . newRef
+    {-# INLINABLE readRef #-}
+    readRef = lift . readRef
+    {-# INLINABLE writeRef #-}
+    writeRef r = lift . writeRef r
+
+instance MonadAtomicRef m => MonadAtomicRef (AccStateT t f s m) where
+    {-# INLINABLE atomicModifyRef #-}
+    atomicModifyRef r = lift . atomicModifyRef r
+
+instance PostBuild t m => PostBuild t (AccStateT t f s m) where
+    {-# INLINABLE getPostBuild #-}
+    getPostBuild = lift getPostBuild
+
+instance PerformEvent t m => PerformEvent t (AccStateT t f s m) where
+    type Performable (AccStateT t f s m) = Performable m
+    {-# INLINABLE performEvent_ #-}
+    performEvent_ e = lift $ performEvent_ e
+    {-# INLINABLE performEvent #-}
+    performEvent e = lift $ performEvent e
+
+instance TriggerEvent t m => TriggerEvent t (AccStateT t f s m) where
+    {-# INLINABLE newTriggerEvent #-}
+    newTriggerEvent = lift newTriggerEvent
+    {-# INLINABLE newTriggerEventWithOnComplete #-}
+    newTriggerEventWithOnComplete = lift newTriggerEventWithOnComplete
+    {-# INLINABLE newEventWithLazyTriggerWithOnComplete #-}
+    newEventWithLazyTriggerWithOnComplete = lift . newEventWithLazyTriggerWithOnComplete
+
 watch :: Monad m => AccStateT t f s m (f s)
 watch = AccStateT . lift $ ask
 
 watches :: (Functor f, Monad m) => (s -> a) -> AccStateT t f s m (f a)
 watches f = fmap f <$> watch
 
-
 -- | An alternative f <=< g that runs f even if g gives back Nothing
 {-# INLINE composeMaybe #-}
 composeMaybe :: (a -> Maybe a) -> (a -> Maybe a) -> (a -> Maybe a)
-composeMaybe f g a
-  | Just a' <- g a = f a'
-  | otherwise      = f a
+composeMaybe g f a
+  | Just a' <- f a = g a'
+  | otherwise      = g a
 
 runAccStateT :: (Accumulator t f, MonadHold t m, MonadFix m) => AccStateT t f s m a -> s -> m (a, f s)
 runAccStateT ms initial = mdo
@@ -108,36 +151,6 @@ adjust et = let !et' = fmap Just <$> et in AccStateT $ modify (et':)
 
 adjustMaybe :: Monad m => Event t (s -> Maybe s) -> AccStateT t f s m ()
 adjustMaybe !et = AccStateT $ modify (et:)
-
-instance MonadTrans (AccStateT t f s) where
-    lift = AccStateT . lift . lift
-
-instance MonadReader r m => MonadReader r (AccStateT t f s m) where
-    ask = lift ask
-    local f m = AccStateT . StateT $ \ts -> ReaderT $ \d -> local f (_runAccStateT m d ts)
-    reader = lift . reader
-
--- instance MonadSample t m => MonadSample t (AccStateT t f s m) where
---     sample = lift . sample
---
--- instance MonadHold t m => MonadHold t (AccStateT t f s m) where
---     hold v0 = lift . hold v0
---     holdDyn v0 = lift . holdDyn v0
---     holdIncremental v0 = lift . holdIncremental v0
---
--- instance MonadReflexCreateTrigger t m => MonadReflexCreateTrigger t (AccStateT t f s m) where
---     newEventWithTrigger = lift . newEventWithTrigger
---     newFanEventWithTrigger = lift . newFanEventWithTrigger
---
--- instance MonadSubscribeEvent t m => MonadSubscribeEvent t (AccStateT t f s m) where
---     subscribeEvent = lift . subscribeEvent
---
-instance MonadRef m => MonadRef (AccStateT t f s m) where
-    type Ref (AccStateT t f s m) = Ref m
-    newRef = lift . newRef
-    readRef = lift . readRef
-    writeRef r = lift . writeRef r
-
 
 ---- Helpers
 

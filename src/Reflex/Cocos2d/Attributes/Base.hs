@@ -1,14 +1,12 @@
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 -- | Concepts largely taken from Graphics.UI.WX.Attributes
-module Reflex.Cocos2d.Attributes
+module Reflex.Cocos2d.Attributes.Base
     ( Attrib(..)
     , Attrib'
     , ROAttrib(..)
@@ -100,7 +98,7 @@ setProps :: Monad m => w -> [Prop w m] -> m ()
 setProps _ [] = return ()
 setProps n ((s := a):ps) = setter s n a >> setProps n ps
 
-hoistA :: (forall x. f x -> g x)  -> Attrib w f b a -> Attrib w g b a
+hoistA :: (forall x. f x -> g x) -> Attrib w f b a -> Attrib w g b a
 hoistA trans (Attrib getter setter) = Attrib (trans . getter) (\w -> trans . setter w)
 
 ---- combinators ----
