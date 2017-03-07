@@ -26,7 +26,7 @@ takeWhileE f e = do
     let gateE = fforMaybe e $ \a -> guard (not $ f a) >> return False
     gateDyn <- holdDyn True gateE
     let e' = attachPromptlyDynWithMaybe (\g a -> guard g >> return a) gateDyn e
-    return . switch =<< hold e' =<< headE (never <$ gateE)
+    fmap switch $ hold e' =<< headE (never <$ gateE)
 
 -- | Efficiently cut off a stream of events at a point
 dropWhileE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m (Event t a)

@@ -1,7 +1,9 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE StandaloneDeriving #-}
 module Reflex.Cocos2d.Builder.Base
     (
       NodeBuilderEnv(..)
@@ -14,6 +16,7 @@ import Control.Monad.Exception
 import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.Ref
+import Control.Monad.Base
 import Data.Dependent.Sum
 import Debug.Trace
 import Diagrams (V2)
@@ -44,6 +47,8 @@ newtype ImmediateNodeBuilderT t m a = ImmediateNodeBuilderT { unImmediateNodeBui
     , MonadSample t, MonadHold t
     , PostBuild t
     )
+
+deriving instance MonadBase IO m => MonadBase IO (ImmediateNodeBuilderT t m)
 
 instance MonadTrans (ImmediateNodeBuilderT t) where
     lift = ImmediateNodeBuilderT . lift

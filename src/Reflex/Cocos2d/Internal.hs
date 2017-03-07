@@ -21,6 +21,7 @@ import Graphics.UI.Cocos2d.Scene
 import Graphics.UI.Cocos2d.Director
 
 import Reflex.Cocos2d.Builder.Base
+import Reflex.Cocos2d.Finalize.Base
 
 -- NOTE: some notes
 --
@@ -48,7 +49,7 @@ import Reflex.Cocos2d.Builder.Base
 -- type NodeBuilder = PostBuildT Spider ()
 
 
-type SpiderNodeBuilder = PostBuildT Spider (ImmediateNodeBuilderT Spider (PerformEventT Spider (SpiderHost Global)))
+type SpiderNodeBuilder = PostBuildT Spider (FinalizeT Spider IO (ImmediateNodeBuilderT Spider (PerformEventT Spider (SpiderHost Global))))
 
 -- | Construct a new scene with a NodeBuilder
 mainScene :: SpiderNodeBuilder a -> IO a
@@ -56,7 +57,7 @@ mainScene bd = do
     scene <- scene_create
     dtor <- director_getInstance
     winSize <- decode =<< director_getWinSize dtor
-    result <- runSpiderHost $ do
+    (result, fins) <- runSpiderHost $ do
       (postBuild, postBuildTriggerRef) <- newEventWithTriggerRef
       rec let fireEvent ds = void . runSpiderHost $ fire ds (return ())
           ticks <- newEventWithTrigger $ \tr -> liftIO $ do
@@ -72,9 +73,13 @@ mainScene bd = do
                   , frameTicks = ticks
                   , fireEvent = fireEvent
                   }
-          (result, FireCommand fire) <- hostPerformEventT $ flip runImmediateNodeBuilderT env $ runPostBuildT bd postBuild
+          (resultWithFin, FireCommand fire) <- hostPerformEventT $
+              flip runImmediateNodeBuilderT env $
+              flip runFinalizeT (return ()) $
+              runPostBuildT bd postBuild
       -- fire the post build event
       readRef postBuildTriggerRef >>= mapM_ (\t -> fire [t ==> ()] $ return ())
-      return result
+      return resultWithFin
     director_getInstance >>= flip director_runWithScene scene
+    fins
     return result

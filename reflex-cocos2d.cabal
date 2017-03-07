@@ -11,25 +11,24 @@ cabal-version:       >=1.10
 
 
 library
-  exposed-modules:     Reflex.Cocos2d.Finalize.Base
+  exposed-modules:     Reflex.Cocos2d
+                     , Reflex.Cocos2d.Finalize.Base
                      , Reflex.Cocos2d.Finalize.Class
                      , Reflex.Cocos2d.Builder.Base
                      , Reflex.Cocos2d.Builder.Class
+                     , Reflex.Cocos2d.Builder.Node
+                     , Reflex.Cocos2d.Builder.Label
+                     , Reflex.Cocos2d.Builder.Widget
+                     , Reflex.Cocos2d.Builder.CocoStudio
                      , Reflex.Cocos2d.Accum.Class
-                     --   Reflex.Cocos2d
-                     -- , Reflex.Cocos2d.Class
-                     , Reflex.Cocos2d.Internal
-                     -- , Reflex.Cocos2d.Node
-                     , Reflex.Cocos2d.Types
                      , Reflex.Cocos2d.Attributes.Base
                      , Reflex.Cocos2d.Attributes.Node
+                     , Reflex.Cocos2d.Misc.Audio
+                     , Reflex.Cocos2d.Misc.Chipmunk
                      , Reflex.Cocos2d.Event
-                     -- , Reflex.Cocos2d.Label
-                     -- , Reflex.Cocos2d.Widget
-                     -- , Reflex.Cocos2d.Audio
-                     -- , Reflex.Cocos2d.CocoStudio
-                     -- , Reflex.Cocos2d.Chipmunk
-                     -- , Reflex.Extra
+                     , Reflex.Cocos2d.Types
+                     , Reflex.Cocos2d.Internal
+                     , Reflex.Extra
                      , Reflex.State
                      , Data.Pool
   other-modules:       Reflex.Cocos2d.FastTriggerEvent.Class

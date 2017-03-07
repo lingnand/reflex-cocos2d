@@ -23,6 +23,7 @@ import Reflex.Host.Class
 import Reflex.Cocos2d.Finalize.Class
 import Reflex.Cocos2d.Builder.Class
 import Reflex.Cocos2d.Accum.Class
+import Reflex.Cocos2d.FastTriggerEvent.Class
 
 newtype FinalizeT t n m a = FinalizeT { unFinalizeT :: StateT (n ()) m a }
   deriving
@@ -102,6 +103,11 @@ instance (Monad m, NodeBuilder t m) => NodeBuilder t (FinalizeT t n m) where
     getWindowSize = lift getWindowSize
     {-# INLINABLE getFrameTicks #-}
     getFrameTicks = lift getFrameTicks
+
+instance FastTriggerEvent t m => FastTriggerEvent t (FinalizeT t n m) where
+    fastNewTriggerEvent = lift fastNewTriggerEvent
+    fastNewTriggerEventWithOnComplete = lift fastNewTriggerEventWithOnComplete
+    fastNewEventWithLazyTriggerWithOnComplete = lift . fastNewEventWithLazyTriggerWithOnComplete
 
 instance (MonadBase n m, MonadAdjust t m, MonadFix m, MonadSample t m, MonadHold t m, MonadSample t n)
         => MonadAdjust t (FinalizeT t n m) where
