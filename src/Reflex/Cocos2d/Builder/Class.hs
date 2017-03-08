@@ -4,6 +4,7 @@
 module Reflex.Cocos2d.Builder.Class
     ( Time
     , NodeBuilder(..)
+    , (-<)
     )
   where
 
@@ -39,3 +40,13 @@ instance NodeBuilder t m => NodeBuilder t (AccStateT t f s m) where
     getWindowSize = lift getWindowSize
     getFrameTicks = lift getFrameTicks
 
+-- * Compositions
+-- | Embed
+-- e.g., @nodeBuilder -< child@
+infixr 2 -<
+(-<) :: (NodePtr n, NodeBuilder t m)
+     => m n -> m a -> m (n, a)
+(-<) node child = do
+    n <- node
+    a <- withParent (toNode n) child
+    return (n, a)

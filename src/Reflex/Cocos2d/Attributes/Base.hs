@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | Concepts largely taken from Graphics.UI.WX.Attributes
 module Reflex.Cocos2d.Attributes.Base
     ( Attrib(..)
@@ -24,7 +25,7 @@ module Reflex.Cocos2d.Attributes.Base
     , divided
     , choose
     , chosen
-    -- attrs --
+    -- * classes and generalizations
     , HasROPositionAttrib(..)
     , HasRWPositionAttrib(..)
     , HasROAngleAttrib(..)
@@ -33,16 +34,28 @@ module Reflex.Cocos2d.Attributes.Base
     , positionFrom
     , angleFrom
     , transformFrom
+    -- * combinators
+    , evt
+    , dyn
+    , dyn'
+    , uDyn
+    , uDyn'
     )
   where
 
 import Data.Colour
 import Data.Functor.Contravariant
 import Diagrams (Point(..), V2(..), P2, (^&), _x, _y, Angle)
+import Control.Monad
+import Control.Monad.Trans
 import Control.Lens hiding (chosen, transform)
+
+import Reflex
 import Reflex.Cocos2d.Types
 
 import Graphics.UI.Cocos2d.Common
+
+import Reflex.Extra
 
 infixr 0 :=
 
@@ -178,3 +191,47 @@ transformFrom :: ( HasROAngleAttrib a m, HasROPositionAttrib a m
               => WOAttrib' w m a
 transformFrom = WOAttrib $ \w a -> setter positionFrom w a >> setter angleFrom w a
 
+
+-- | Higher-order combinators
+evt :: ( PerformEvent t m
+       , IsSettable w (Performable m) a (attr w (Performable m) b a) )
+    => attr w (Performable m) b a -> WOAttrib' w m (Event t a)
+evt attr = WOAttrib $ \w e -> performEvent_ . ffor e $ setter attr w
+
+-- | Transforms a IsSettable attribute to a WOAttribute. This uses lazy read on the incoming Dynamic
+dyn :: ( PerformEvent t m, PostBuild t m
+       , IsSettable w (Performable m) a (attr w (Performable m) b a) )
+    => attr w (Performable m) b a -> WOAttrib' w m (Dynamic t a)
+dyn attr = WOAttrib $ \w -> setter evtattr w <=< postponeCurrent
+  where evtattr = evt attr
+
+
+uDyn :: ( PerformEvent t m, PostBuild t m
+        , IsSettable w (Performable m) a (attr w (Performable m) b a)
+        , Eq a )
+     => attr w (Performable m) b a -> WOAttrib' w m (UniqDynamic t a)
+uDyn = (fromUniqDynamic >$<) . dyn
+
+-- | Similar to `dyn`, but applies strict read
+-- XXX: nasty constraints to allow 'c' to be instantiated as different types within the function
+dyn' :: forall attr w t m b a.
+        ( PerformEvent t m
+        , MonadIO m, MonadSample t m
+        , MonadIO (Performable m)
+        , IsSettable w (Performable m) a (attr w (Performable m) b a)
+        , IsSettable w m a (attr w m b a) )
+     => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
+     -> WOAttrib' w m (Dynamic t a)
+dyn' attr = WOAttrib $ \w d -> do
+              setter attr w =<< sample (current d)
+              setter (evt (attr :: attr w (Performable m) b a)) w (updated d)
+
+uDyn' :: ( PerformEvent t m
+         , MonadIO m, MonadSample t m
+         , MonadIO (Performable m)
+         , IsSettable w (Performable m) a (attr w (Performable m) b a)
+         , IsSettable w m a (attr w m b a)
+         , Eq a )
+      => (forall m'. (MonadIO m', IsSettable w m' a (attr w m' b a)) => attr w m' b a)
+      -> WOAttrib' w m (UniqDynamic t a)
+uDyn' attr = fromUniqDynamic >$< dyn' attr

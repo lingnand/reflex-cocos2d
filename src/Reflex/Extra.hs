@@ -1,13 +1,28 @@
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Reflex.Extra
     ( takeWhileE
     , dropWhileE
     , breakE
+    , postponeCurrent
+    , postpone
     , dynMaybe
     , modulate
     , stack
     , distribute
+    -- * Free stuff
+    , runWithReplaceFree
+    , waitEvent
+    , waitEvent'
+    , waitEvent_
+    , waitDynMaybe
+    , waitDynMaybe'
+    , waitDynMaybe_
+    , switchFree
+    , switchFreeT
     )
   where
 
@@ -15,6 +30,8 @@ import Data.Maybe
 import Reflex
 import Control.Monad
 import Control.Monad.Fix
+import Control.Monad.Trans
+import Control.Monad.Trans.Free
 import Control.Applicative
 import Control.Lens
 
@@ -42,6 +59,16 @@ breakE f e = do
     bef <- switch <$> hold e' (never <$ gateE')
     aft <- switchPromptly never (e <$ gateE')
     return (bef, aft)
+
+-- | Convert Dynamic to an Event that carries the first value in postBuild
+postponeCurrent :: (Reflex t, PostBuild t m) => Dynamic t a -> m (Event t a)
+postponeCurrent d = do
+    pe <- getPostBuild
+    return $ leftmost [ pushAlways (const $ sample (current d)) pe
+                      , updated d ]
+
+postpone :: PostBuild t m => a -> m (Event t a)
+postpone v = fmap (const v) <$> getPostBuild
 
 -- | Convert an Event into a Dynamic of Maybe
 dynMaybe :: (Reflex t, MonadHold t m)
@@ -112,3 +139,86 @@ distribute tasks n workerDones = do
                     _ -> Nothing
         dist = ffor ids $ \id -> fforMaybe out' $ \(t, id') -> guard (id' == id) >> return t
     return (dSt, dist, failed)
+
+-- Free related
+
+-- | Greedy Free
+runWithReplaceFree ::
+  forall t m a.
+  (MonadFix m , PostBuild t m , MonadHold t m, MonadAdjust t m)
+  => FreeT (Event t) m a -> m (Event t a)
+runWithReplaceFree ft = mdo
+    let startE = case result0 of
+          Pure _ -> never :: Event t (FreeT (Event t) m a)
+          Free e -> e
+    newFs <- switchPromptly startE $ fmapMaybe previewFree newResult
+    (result0, newResult) <- runWithReplace (runFreeT ft) (runFreeT <$> newFs)
+    case result0 of
+      Pure a -> postpone a
+      _ -> return $ fmapMaybe previewPure newResult
+
+-- ** Operations to be used in seqHoldFree
+-- | Wait for the first occurrence
+waitEvent :: (Reflex t, Monad m) => Event t a -> FreeT (Event t) m a
+waitEvent = liftF
+
+-- | Wait for the first occurrence and include the future occurrences in return
+waitEvent' :: (Reflex t, Monad m) => Event t a -> FreeT (Event t) m (a, Event t a)
+waitEvent' e = (,e) <$> liftF e
+
+waitEvent_ :: (Reflex t, Monad m) => Event t a -> FreeT (Event t) m ()
+waitEvent_ = void . waitEvent
+
+-- | Wait for the Dynamic to turn from Nothing to Just
+waitDynMaybe :: (Reflex t, MonadSample t m) => Dynamic t (Maybe a) -> FreeT (Event t) m a
+waitDynMaybe dyn = lift (sample $ current dyn) >>= \case
+    Just a -> return a
+    _ -> waitEvent $ fmapMaybe id (updated dyn)
+
+-- | Wait for the first Just value, and include the future values in return
+waitDynMaybe' :: (Reflex t, MonadSample t m) => Dynamic t (Maybe a) -> FreeT (Event t) m (a, Event t a)
+waitDynMaybe' dyn = (,fmapMaybe id $ updated dyn) <$> waitDynMaybe dyn
+
+waitDynMaybe_ :: (Reflex t, MonadSample t m) => Dynamic t (Maybe a) -> FreeT (Event t) m ()
+waitDynMaybe_ = void . waitDynMaybe
+
+previewFree :: FreeF f a b -> Maybe (f b)
+previewFree (Free fb) = Just fb
+previewFree _ = Nothing
+
+previewPure :: FreeF f a b -> Maybe a
+previewPure (Pure a) = Just a
+previewPure _ = Nothing
+
+
+switchFreeT' ::
+  (Reflex t, MonadHold t m)
+  => (forall x. m' x -> m x)
+  -> (forall x. m' x -> PushM t x)
+  -> FreeT (Event t) m' a -> m (FreeF (Event t) a a)
+switchFreeT' hoistM hoistPush ft = hoistM (runFreeT ft) >>= \case
+    Pure a -> return $ Pure a
+    Free e -> Free <$> switchPromptly never flattened
+      where flattened = flip pushAlways e $ switchFreeT' hoistPush hoistPush >=> \case
+                            Pure a -> return $ a <$ e
+                            Free ie -> return ie
+
+-- -- | Merge a deeply nested Event into a single Event
+switchFree ::
+  (Reflex t, MonadHold t m, PostBuild t m)
+  => Free (Event t) a -> m (Event t a)
+switchFree f = do
+    let hoist (Identity x) = return x
+    switchFreeT' hoist hoist f >>= \case
+      Pure a -> postpone a
+      Free e -> return e
+
+switchFreeT ::
+  (Reflex t, PostBuild t m, MonadHold t m)
+  => FreeT (Event t) (PushM t) a -> m (Event t a)
+switchFreeT f = do
+    e <- getPostBuild
+    let e' = flip pushAlways e $ \_ -> switchFreeT' id id f >>= \case
+          Pure a -> return $ a <$ e
+          Free e -> return e
+    switchPromptly never e'
