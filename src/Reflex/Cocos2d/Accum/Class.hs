@@ -24,7 +24,6 @@ import Data.Dependent.Map (DMap)
 import Control.Monad.State.Strict
 import Reflex
 import Reflex.Host.Class
-import Reflex.State
 
 -- | Dual of MonadAdjust - instead of running replacement on new events, accumulate the effects
 class (Reflex t, Monad m) => MonadAccum t m | m -> t where
@@ -38,14 +37,6 @@ instance (MonadFix m, MonadHold t m, MonadAccum t m) => MonadAccum t (PostBuildT
         rec result@(_, result') <- runWithAccumulation (runPostBuildT z postBuild) $ fmap (\v -> runPostBuildT v =<< headE voidResult') em
             let voidResult' = fmapCheap (const ()) result'
         return result
-
-instance (MonadFix m, MonadHold t m, MonadAccum t m) => MonadAccum t (AccStateT t f s m) where
-    runWithAccumulation z em = AccStateT $ StateT $ \s -> ReaderT $ \r -> do
-      ((a, sz), ers) <- runWithAccumulation (_runAccStateT z r []) $ (\m -> _runAccStateT m r []) <$> em
-      let onNewAdjusters _ [] = Nothing
-          onNewAdjusters adj adjs = Just $! mergeWith composeMaybe (adjs++[adj])
-      adjBeh <- accumMaybe onNewAdjusters (mergeWith composeMaybe sz) (snd <$> ers)
-      return ((a, fst <$> ers), switch adjBeh:s)
 
 -- TODO: MonadAccum implementation for PerformEventT
 instance (ReflexHost t, PrimMonad (HostFrame t)) => MonadAccum t (PerformEventT t m) where

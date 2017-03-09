@@ -3,28 +3,30 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE RecursiveDo #-}
 module Reflex.State
-    ( AccStateT(..)
+    (
+      MonadAccState(..)
+    , AccZoom(..)
+    , AccStateT
     , DynStateT
     , EventStateT
     , UniqDynStateT
     , BehaviorStateT
-    , watch
+
     , watches
-    , focus
     , refine
+    , adjust
+
     , runAccStateT
-    , _runAccStateT
     , execAccStateT
     , evalAccStateT
-    , adjust
-    , adjustMaybe
-    , composeMaybe
+
     , pnon
     , pnon'
     )
@@ -43,7 +45,36 @@ import Control.Monad.State.Strict
 import Reflex
 import Reflex.Host.Class
 
----- generalization: AccStateT
+import Reflex.Cocos2d.Accum.Class
+
+---- Generalized class interface
+class (Reflex t, Monad m, Functor f) => MonadAccState t f s m | m -> t f s where
+    -- | Watch the changes to the state by extracting the reflex
+    -- accumulator
+    watch :: m (f s)
+    -- | Adjust the state by applying an event of transformer, which does
+    -- nothing on returning Nothing and modifies the state when returning
+    -- (Just s')
+    adjustMaybe :: Event t (s -> Maybe s) -> m ()
+
+class (MonadAccState t f a m, MonadAccState t f s n) => AccZoom t f m n a s
+    | m -> t f, n -> t f, m -> a, n -> s, m s -> n, n a -> m where
+    zoomAcc :: ALens' s a -> m c -> n c
+
+watches :: MonadAccState t f s m => (s -> a) -> m (f a)
+watches f = fmap f <$> watch
+
+adjust :: MonadAccState t f s m => Event t (s -> s) -> m ()
+adjust et = let !et' = fmap Just <$> et in adjustMaybe et'
+
+-- | An alternative f <=< g that runs f even if g gives back Nothing
+{-# INLINE composeMaybe #-}
+composeMaybe :: (a -> Maybe a) -> (a -> Maybe a) -> (a -> Maybe a)
+composeMaybe g f a
+  | Just a' <- f a = g a'
+  | otherwise      = g a
+
+
 ---- the input is always the same - like a reader
 newtype AccStateT t f s m a = AccStateT (StateT [Event t (s -> Maybe s)] (ReaderT (f s) m) a)
   deriving
@@ -57,6 +88,38 @@ type DynStateT t = AccStateT t (Dynamic t)
 type EventStateT t = AccStateT t (Event t)
 type UniqDynStateT t = AccStateT t (UniqDynamic t)
 type BehaviorStateT t = AccStateT t (Behavior t)
+
+refine :: (f2 a -> f1 a) -> AccStateT t f1 a m b -> AccStateT t f2 a m b
+refine f m = AccStateT . StateT $ \ts -> ReaderT $ \d -> _runAccStateT m (f d) ts
+
+runAccStateT :: (Accumulator t f, MonadHold t m, MonadFix m) => AccStateT t f s m a -> s -> m (a, f s)
+runAccStateT ms initial = mdo
+    stateDyn <- accumMaybe (&) initial $ mergeWith composeMaybe ts
+    (a, ts) <- _runAccStateT ms stateDyn []
+    return (a, stateDyn)
+
+_runAccStateT :: AccStateT t f s m a -> f s -> [Event t (s -> Maybe s)] -> m (a, [Event t (s -> Maybe s)])
+_runAccStateT (AccStateT ms) d ts = flip runReaderT d . flip runStateT ts $ ms
+
+execAccStateT :: (Accumulator t f, MonadHold t m, MonadFix m) => AccStateT t f s m a -> s -> m (f s)
+execAccStateT ms initial = snd <$> runAccStateT ms initial
+
+evalAccStateT :: (Accumulator t f, MonadHold t m, MonadFix m) => AccStateT t f s m a -> s -> m a
+evalAccStateT ms initial = fst <$> runAccStateT ms initial
+
+instance (Monad m, Reflex t, Functor f) => MonadAccState t f s (AccStateT t f s m) where
+    watch = AccStateT . lift $ ask
+    adjustMaybe !et = AccStateT $ modify (et:)
+
+instance (Reflex t, Monad m, Functor f) => AccZoom t f (AccStateT t f a m) (AccStateT t f s m) a s where
+    zoomAcc len am = do
+      let clonedGetter = cloneLens len
+          clonedSetter = cloneLens len
+      da <- watches (^.clonedGetter)
+      (b, ta') <- lift $ _runAccStateT am da []
+      let !lts = clonedSetter <$> mergeWith composeMaybe ta'
+      adjustMaybe lts
+      return b
 
 instance MonadTrans (AccStateT t f s) where
     lift = AccStateT . lift . lift
@@ -105,52 +168,13 @@ instance TriggerEvent t m => TriggerEvent t (AccStateT t f s m) where
     {-# INLINABLE newEventWithLazyTriggerWithOnComplete #-}
     newEventWithLazyTriggerWithOnComplete = lift . newEventWithLazyTriggerWithOnComplete
 
-watch :: Monad m => AccStateT t f s m (f s)
-watch = AccStateT . lift $ ask
-
-watches :: (Functor f, Monad m) => (s -> a) -> AccStateT t f s m (f a)
-watches f = fmap f <$> watch
-
--- | An alternative f <=< g that runs f even if g gives back Nothing
-{-# INLINE composeMaybe #-}
-composeMaybe :: (a -> Maybe a) -> (a -> Maybe a) -> (a -> Maybe a)
-composeMaybe g f a
-  | Just a' <- f a = g a'
-  | otherwise      = g a
-
-runAccStateT :: (Accumulator t f, MonadHold t m, MonadFix m) => AccStateT t f s m a -> s -> m (a, f s)
-runAccStateT ms initial = mdo
-    stateDyn <- accumMaybe (&) initial $ mergeWith composeMaybe ts
-    (a, ts) <- _runAccStateT ms stateDyn []
-    return (a, stateDyn)
-
-_runAccStateT :: AccStateT t f s m a -> f s -> [Event t (s -> Maybe s)] -> m (a, [Event t (s -> Maybe s)])
-_runAccStateT (AccStateT ms) d ts = flip runReaderT d . flip runStateT ts $ ms
-
-execAccStateT :: (Accumulator t f, MonadHold t m, MonadFix m) => AccStateT t f s m a -> s -> m (f s)
-execAccStateT ms initial = snd <$> runAccStateT ms initial
-
-evalAccStateT :: (Accumulator t f, MonadHold t m, MonadFix m) => AccStateT t f s m a -> s -> m a
-evalAccStateT ms initial = fst <$> runAccStateT ms initial
-
-focus :: (Reflex t, MonadHold t m, Functor f) => ALens' s a -> AccStateT t f a m b -> AccStateT t f s m b
-focus len am = do
-    let clonedGetter = cloneLens len
-        clonedSetter = cloneLens len
-    da <- watches (^.clonedGetter)
-    (b, ta') <- lift $ _runAccStateT am da []
-    let !lts = clonedSetter <$> mergeWith composeMaybe ta'
-    adjustMaybe lts
-    return b
-
-refine :: (f2 a -> f1 a) -> AccStateT t f1 a m b -> AccStateT t f2 a m b
-refine f m = AccStateT . StateT $ \ts -> ReaderT $ \d -> _runAccStateT m (f d) ts
-
-adjust :: (Reflex t, Monad m) => Event t (s -> s) -> AccStateT t f s m ()
-adjust et = let !et' = fmap Just <$> et in AccStateT $ modify (et':)
-
-adjustMaybe :: Monad m => Event t (s -> Maybe s) -> AccStateT t f s m ()
-adjustMaybe !et = AccStateT $ modify (et:)
+instance (MonadFix m, MonadHold t m, MonadAccum t m) => MonadAccum t (AccStateT t f s m) where
+    runWithAccumulation z em = AccStateT $ StateT $ \s -> ReaderT $ \r -> do
+      ((a, sz), ers) <- runWithAccumulation (_runAccStateT z r []) $ (\m -> _runAccStateT m r []) <$> em
+      let onNewAdjusters _ [] = Nothing
+          onNewAdjusters adj adjs = Just $! mergeWith composeMaybe (adjs++[adj])
+      adjBeh <- accumMaybe onNewAdjusters (mergeWith composeMaybe sz) (snd <$> ers)
+      return ((a, fst <$> ers), switch adjBeh:s)
 
 ---- Helpers
 
