@@ -5,14 +5,21 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE ConstraintKinds #-}
 module Reflex.State
     (
       MonadAccState(..)
+    , MonadDynState
+    , MonadEventState
+    , MonadUniqDynState
+    , MonadBehaviorState
     , AccZoom(..)
+
     , AccStateT
     , DynStateT
     , EventStateT
@@ -56,6 +63,11 @@ class (Reflex t, Monad m, Functor f) => MonadAccState t f s m | m -> t f s where
     -- nothing on returning Nothing and modifies the state when returning
     -- (Just s')
     adjustMaybe :: Event t (s -> Maybe s) -> m ()
+
+type MonadDynState t s m = MonadAccState t (Dynamic t) s m
+type MonadEventState t s m = MonadAccState t (Event t) s m
+type MonadUniqDynState t s m = MonadAccState t (UniqDynamic t) s m
+type MonadBehaviorState t s m = MonadAccState t (Behavior t) s m
 
 class (MonadAccState t f a m, MonadAccState t f s n) => AccZoom t f m n a s
     | m -> t f, n -> t f, m -> a, n -> s, m s -> n, n a -> m where
