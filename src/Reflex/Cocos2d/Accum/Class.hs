@@ -38,7 +38,6 @@ instance (MonadFix m, MonadHold t m, MonadAccum t m) => MonadAccum t (PostBuildT
             let voidResult' = fmapCheap (const ()) result'
         return result
 
--- TODO: MonadAccum implementation for PerformEventT
 instance (ReflexHost t, PrimMonad (HostFrame t)) => MonadAccum t (PerformEventT t m) where
     runWithAccumulation outerA0 outerA' = PerformEventT $ runWithAccumulationRequesterTWith f (coerce outerA0) (coerceEvent outerA')
       where f :: HostFrame t a -> Event t (HostFrame t b) -> RequesterT t (HostFrame t) Identity (HostFrame t) (a, Event t b)

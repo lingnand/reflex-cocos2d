@@ -1,4 +1,6 @@
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 module Reflex.Cocos2d.Internal
     (
       SpiderNodeBuilder
@@ -9,9 +11,11 @@ module Reflex.Cocos2d.Internal
 import Data.Dependent.Sum ((==>))
 import Control.Monad
 import Control.Monad.Trans
+import Control.Monad.Base
 import Control.Monad.Ref
 
 import Reflex
+import Reflex.Spider.Internal
 import Reflex.Host.Class
 
 import Foreign.Ptr (castPtr)
@@ -49,7 +53,11 @@ import Reflex.Cocos2d.Finalize.Base
 -- type NodeBuilder = PostBuildT Spider ()
 
 
-type SpiderNodeBuilder = PostBuildT Spider (FinalizeT Spider IO (ImmediateNodeBuilderT Spider (PerformEventT Spider (SpiderHost Global))))
+type SpiderNodeBuilder = PostBuildT Spider (FinalizeT Spider (SpiderHostFrame Global) (ImmediateNodeBuilderT Spider (PerformEventT Spider (SpiderHost Global))))
+
+-- so that we can lift the finalizer through to m
+instance MonadBase (SpiderHostFrame Global) (PerformEventT Spider (SpiderHost Global)) where
+    liftBase = PerformEventT . lift
 
 -- | Construct a new scene with a NodeBuilder
 mainScene :: SpiderNodeBuilder a -> IO a
@@ -81,5 +89,5 @@ mainScene bd = do
       readRef postBuildTriggerRef >>= mapM_ (\t -> fire [t ==> ()] $ return ())
       return resultWithFin
     director_getInstance >>= flip director_runWithScene scene
-    fins
+    runSpiderHost $ runHostFrame fins
     return result

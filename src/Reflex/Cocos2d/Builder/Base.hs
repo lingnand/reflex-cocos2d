@@ -2,8 +2,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE StandaloneDeriving #-}
 module Reflex.Cocos2d.Builder.Base
     (
       NodeBuilderEnv(..)
@@ -45,10 +45,10 @@ newtype ImmediateNodeBuilderT t m a = ImmediateNodeBuilderT { unImmediateNodeBui
     , MonadFix, MonadIO
     , MonadException, MonadAsyncException
     , MonadSample t, MonadHold t
-    , PostBuild t
     )
 
-deriving instance MonadBase IO m => MonadBase IO (ImmediateNodeBuilderT t m)
+instance (MonadBase b m) => MonadBase b (ImmediateNodeBuilderT t m) where
+    liftBase = lift . liftBase
 
 instance MonadTrans (ImmediateNodeBuilderT t) where
     lift = ImmediateNodeBuilderT . lift
@@ -62,6 +62,10 @@ instance (Reflex t, Monad m) => NodeBuilder t (ImmediateNodeBuilderT t m) where
     getWindowSize = ImmediateNodeBuilderT $ asks windowSize
     {-# INLINABLE getFrameTicks #-}
     getFrameTicks = ImmediateNodeBuilderT $ asks frameTicks
+
+instance PostBuild t m => PostBuild t (ImmediateNodeBuilderT t m) where
+    {-# INLINABLE getPostBuild #-}
+    getPostBuild = lift getPostBuild
 
 instance PerformEvent t m => PerformEvent t (ImmediateNodeBuilderT t m) where
     type Performable (ImmediateNodeBuilderT t m) = Performable m
