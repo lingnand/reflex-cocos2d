@@ -180,6 +180,15 @@ instance TriggerEvent t m => TriggerEvent t (AccStateT t f s m) where
     {-# INLINABLE newEventWithLazyTriggerWithOnComplete #-}
     newEventWithLazyTriggerWithOnComplete = lift . newEventWithLazyTriggerWithOnComplete
 
+instance (MonadAdjust t m, MonadHold t m) => MonadAdjust t (AccStateT t f s m) where
+    runWithReplace z em = AccStateT $ StateT $ \s -> ReaderT $ \r -> do
+      ((a, sz), ers) <- runWithReplace (_runAccStateT z r []) $ (\m -> _runAccStateT m r []) <$> em
+      adj <- switchPromptly (mergeWith composeMaybe sz) (mergeWith composeMaybe . snd <$> ers)
+      return ((a, fst <$> ers), adj:s)
+    -- XXX: traverseDMapWithKeyWithAdjust and traverseDMapWithKeyWithAdjustWithMove not implemented
+    traverseDMapWithKeyWithAdjust _ _ _ = error "traverseDMapWithKeyWithAdjust not implemented for FinalizeT"
+    traverseDMapWithKeyWithAdjustWithMove _ _ _ = error "traverseDMapWithKeyWithAdjustWithMove not implemented for FinalizeT"
+
 instance (MonadFix m, MonadHold t m, MonadAccum t m) => MonadAccum t (AccStateT t f s m) where
     runWithAccumulation z em = AccStateT $ StateT $ \s -> ReaderT $ \r -> do
       ((a, sz), ers) <- runWithAccumulation (_runAccStateT z r []) $ (\m -> _runAccStateT m r []) <$> em

@@ -61,6 +61,12 @@ instance {-# OVERLAPPABLE #-} (MonadIO m, NodePtr n) => HasRWAngleAttrib n m whe
       getter = liftIO . fmap fromCC . node_getRotation
       setter n = node_setRotation n . toCC
 
+instance {-# OVERLAPPABLE #-} (MonadIO m, NodePtr n) => HasROPositionAttrib n m where
+  roPosition = ROAttrib $ getter position
+
+instance {-# OVERLAPPABLE #-} (MonadIO m, NodePtr n) => HasROAngleAttrib n m where
+  roAngle = ROAttrib $ getter angle
+
 -- | anchor expressed as percentage: V2 ([0-1], [0-1])
 anchor :: (MonadIO m, NodePtr n) => Attrib' n m (V2 Float)
 anchor = hoistA liftIO $ Attrib (decode <=< node_getAnchorPoint) node_setAnchorPoint
@@ -190,5 +196,3 @@ flippedX = hoistA liftIO $ Attrib sprite_isFlippedX sprite_setFlippedX
 
 flippedY :: (MonadIO m, SpritePtr n) => Attrib' n m Bool
 flippedY = hoistA liftIO $ Attrib sprite_isFlippedY sprite_setFlippedY
-
-

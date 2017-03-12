@@ -9,6 +9,7 @@
 module Data.Pool
   (
     Pool
+  , Id
   -- * Accessors
   , busy
   , idles
@@ -46,6 +47,7 @@ data Pool a = Pool
     (IM.IntMap a)  -- the busy / occupied cells
     IS.IntSet      -- the idle cells
     Id             -- the base of the remaining id
+  deriving (Show, Eq, Ord)
 
 -- TODO: Show instance, Eq instance..?
 

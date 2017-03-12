@@ -7,6 +7,8 @@ module Reflex.Extra
     ( takeWhileE
     , dropWhileE
     , breakE
+    , accumEWith
+    , accumE
     , postponeCurrent
     , postpone
     , dynMaybe
@@ -23,15 +25,20 @@ module Reflex.Extra
     , waitDynMaybe_
     , switchFree
     , switchFreeT
+    -- * Rand stuff
+    , liftRandE
     )
   where
 
+import Data.Tuple (swap)
 import Data.Maybe
+import Data.Semigroup
 import Reflex
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.Trans
 import Control.Monad.Trans.Free
+import Control.Monad.Random
 import Control.Applicative
 import Control.Lens
 
@@ -59,6 +66,17 @@ breakE f e = do
     bef <- switch <$> hold e' (never <$ gateE')
     aft <- switchPromptly never (e <$ gateE')
     return (bef, aft)
+
+-- | Instead of switching over an Event t (Event t a), we return an Event
+-- that merges all these Events together into a single Event t a
+accumEWith :: (Reflex t, MonadFix m, MonadHold t m)
+           => (a -> a -> a) -> Event t a -> Event t (Event t a) -> m (Event t a)
+accumEWith f ze ee = switch <$> accum onE ze ee
+  where onE old e = mergeWith f [ old, e ]
+
+accumE :: (Reflex t, MonadFix m, MonadHold t m, Semigroup a)
+       => Event t a -> Event t (Event t a) -> m (Event t a)
+accumE ze ee = switch <$> accum (<>) ze ee
 
 -- | Convert Dynamic to an Event that carries the first value in postBuild
 postponeCurrent :: (Reflex t, PostBuild t m) => Dynamic t a -> m (Event t a)
@@ -89,7 +107,6 @@ modulate limit = mapAccumMaybe_ f (0, limit)
 -- commute :: Event t (Maybe a -> Maybe b) -> Event t (Maybe b -> Maybe a)
 --         -> ([a], [b])
 --         -> m (Dynamic t ([a], [b]))
-
 
 -- | Simple stack that responds to Events
 stack :: (Reflex t, MonadHold t m, MonadFix m)
@@ -203,7 +220,7 @@ switchFreeT' hoistM hoistPush ft = hoistM (runFreeT ft) >>= \case
                             Pure a -> return $ a <$ e
                             Free ie -> return ie
 
--- -- | Merge a deeply nested Event into a single Event
+-- | Merge a deeply nested Event into a single Event
 switchFree ::
   (Reflex t, MonadHold t m, PostBuild t m)
   => Free (Event t) a -> m (Event t a)
@@ -222,3 +239,29 @@ switchFreeT f = do
           Pure a -> return $ a <$ e
           Free e -> return e
     switchPromptly never e'
+
+-- Random helpers
+
+liftRandE :: (Reflex t, MonadFix m, MonadHold t m, RandomGen g)
+             => Event t (Rand g a) -> RandT g m (Event t a)
+liftRandE e = liftRandT $ \g ->
+  let (g1, g2) = split g in (, g2) <$> mapAccum_ (\g m -> swap $ runRand m g) g1 e
+
+-- | Fold a pure transformer monad over an event and get the resultant
+-- values back
+-- foldT :: forall t trans m a .
+--          ( Reflex t, MonadFix m, MonadHold t m
+--          , MonadTransControl trans, Monad (trans Identity) )
+--       => (forall a. trans Identity a -> a) -> Event t (trans Identity a) -> m (Event t a)
+-- foldT unT evt = do
+--   let foldF :: Maybe (StT trans ()) -> trans Identity a -> (Maybe (StT trans ()), a)
+--       foldF maybeLastState newM = unT $ do
+--         mapM_ (restoreT .  return :: StT trans () -> trans Identity ()) maybeLastState
+--         flip (,) <$> newM <*> (Just <$> captureT)
+--   mapAccum_ foldF Nothing evt
+
+
+-- instance {-# OVERLAPPABLE #-} (MonadTransControl trans, PerformEvent t m)
+--   => PerformEvent t (trans m) where
+--     type Performable m = trans (Performable m)
+--     performEvent_ evt = do

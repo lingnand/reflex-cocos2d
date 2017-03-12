@@ -163,12 +163,6 @@ class Monad m => HasROAngleAttrib w m where
 class Monad m => HasRWAngleAttrib w m where
   angle :: Attrib' w m (Angle Float)
 
-instance {-# OVERLAPPABLE #-} (Monad m, HasRWPositionAttrib w m) => HasROPositionAttrib w m where
-    roPosition = ROAttrib $ getter position
-
-instance {-# OVERLAPPABLE #-} (Monad m, HasRWAngleAttrib w m) => HasROAngleAttrib w m where
-    roAngle = ROAttrib $ getter angle
-
 -- text related general attributes
 class Monad m => HasRWTextAttrib w m where
   text :: Attrib' w m String

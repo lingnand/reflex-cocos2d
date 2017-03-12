@@ -347,19 +347,31 @@ collisionBias = liftStateVarToFloat $ H.collisionBias . toSpace
 
 -- attributes for bodies
 
+instance MonadIO m => HasRWPositionAttrib (Body a) m where
+    position = liftStateVarToMappedFloat $ H.position . toBody
+
 instance MonadIO m => HasRWAngleAttrib (Body a) m where
     angle = liftStateVar $ S.mapStateVar (realToFrac . (^.rad)) ((@@ rad) . realToFrac) . H.angle . toBody
 
-instance MonadIO m => HasRWPositionAttrib (Body a) m where
-    position = liftStateVarToMappedFloat $ H.position . toBody
+instance MonadIO m => HasROPositionAttrib (Body a) m where
+    roPosition = ROAttrib $ getter position
+
+instance MonadIO m => HasROAngleAttrib (Body a) m where
+    roAngle = ROAttrib $ getter angle
+
+instance {-# OVERLAPPING #-} MonadIO m => HasRWPositionAttrib (x, Body a) m where
+    position = Attrib (getter . snd) (setter . snd)
+      where Attrib getter setter = position
 
 instance {-# OVERLAPPING #-} MonadIO m => HasRWAngleAttrib (x, Body a) m where
     angle = Attrib (getter . snd) (setter . snd)
       where Attrib getter setter = angle
 
-instance {-# OVERLAPPING #-} MonadIO m => HasRWPositionAttrib (x, Body a) m where
-    position = Attrib (getter . snd) (setter . snd)
-      where Attrib getter setter = position
+instance {-# OVERLAPPING #-} MonadIO m => HasROPositionAttrib (x, Body a) m where
+    roPosition = ROAttrib $ getter position
+
+instance {-# OVERLAPPING #-} MonadIO m => HasROAngleAttrib (x, Body a) m where
+    roAngle = ROAttrib $ getter angle
 
 velocity :: (MonadIO m, BodyPtr a b) => Attrib' b m (V2 Float)
 velocity = liftStateVarToMappedFloat $ H.velocity . toBody

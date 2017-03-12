@@ -40,6 +40,7 @@ library
   build-depends:       base >=4.8 && <4.10
                      , colour
                      , containers
+                     , semigroups
                      , mtl
                      , transformers-base
                      , monad-control

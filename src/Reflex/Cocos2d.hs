@@ -15,6 +15,7 @@ import Reflex.Cocos2d.Builder.CocoStudio as X
 import Reflex.Cocos2d.Accum.Class as X
 import Reflex.Cocos2d.Attributes.Base as X
 import Reflex.Cocos2d.Attributes.Node as X
+import Reflex.Cocos2d.FastTriggerEvent.Class as X
 import Reflex.Cocos2d.Misc.Audio as X
 import Reflex.Cocos2d.Misc.Chipmunk as X
 import Reflex.Cocos2d.Event as X
