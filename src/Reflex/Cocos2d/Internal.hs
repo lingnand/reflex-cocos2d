@@ -1,4 +1,6 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 module Reflex.Cocos2d.Internal
@@ -8,14 +10,25 @@ module Reflex.Cocos2d.Internal
     )
   where
 
+import Data.Coerce
+import Data.Sequence
+import Data.Unique.Tag
+import Data.Functor.Misc
+import Data.Semigroup
+import Data.Foldable
+import Data.Dependent.Map (DMap)
 import Data.Dependent.Sum ((==>))
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Base
 import Control.Monad.Ref
+import Control.Monad.Reader
+import Control.Monad.Identity
+import Control.Monad.Primitive
+import Control.Monad.State.Strict
 
 import Reflex
-import Reflex.Spider.Internal
+import Reflex.Spider.Internal (SpiderHostFrame)
 import Reflex.Host.Class
 
 import Foreign.Ptr (castPtr)
@@ -26,6 +39,7 @@ import Graphics.UI.Cocos2d.Director
 
 import Reflex.Cocos2d.Builder.Base
 import Reflex.Cocos2d.Finalize.Base
+import Reflex.Cocos2d.Accum.Class
 
 -- NOTE: some notes
 --
@@ -59,13 +73,60 @@ type SpiderNodeBuilder = PostBuildT Spider (FinalizeT Spider (SpiderHostFrame Gl
 instance MonadBase (SpiderHostFrame Global) (PerformEventT Spider (SpiderHost Global)) where
     liftBase = PerformEventT . lift
 
+-- XXX: why do we have to fix the monad to SpiderHost Global...?
+instance ReflexHost t => MonadAccum t (PerformEventT t (SpiderHost Global)) where
+    runWithAccumulation outerA0 outerA' = PerformEventT $ runWithAccumulationRequesterTWith f (coerce outerA0) (coerceEvent outerA')
+      where f :: HostFrame t a -> Event t (HostFrame t b) -> RequesterT t (HostFrame t) Identity (HostFrame t) (a, Event t b)
+            f a0 a' = do
+              result0 <- lift a0
+              result' <- requestingIdentity a'
+              return (result0, result')
+
+-- XXX: duplicated functions to achieve accumulation
+runWithAccumulationRequesterTWith :: forall m t request response a b. (Reflex t, MonadHold t m, MonadFix m)
+                             => (forall a' b'. m a' -> Event t (m b') -> RequesterT t request response m (a', Event t b'))
+                             -> RequesterT t request response m a
+                             -> Event t (RequesterT t request response m b)
+                             -> RequesterT t request response m (a, Event t b)
+runWithAccumulationRequesterTWith f a0 a' =
+  let f' :: forall a' b'. ReaderT (EventSelector t (WrapArg response (Tag (PrimState m)))) m a'
+         -> Event t (ReaderT (EventSelector t (WrapArg response (Tag (PrimState m)))) m b')
+         -> EventWriterT t (DMap (Tag (PrimState m)) request) (ReaderT (EventSelector t (WrapArg response (Tag (PrimState m)))) m) (a', Event t b')
+      f' x y = do
+        r <- EventWriterT ask
+        unRequesterT (f (runReaderT x r) (fmapCheap (`runReaderT` r) y))
+  in RequesterT $ runWithAccumulationEventWriterTWith f' (coerce a0) (coerceEvent a')
+
+runWithAccumulationEventWriterTWith :: forall m t w a b. (Reflex t, MonadHold t m, MonadFix m, Semigroup w)
+                               => (forall a' b'. m a' -> Event t (m b') -> EventWriterT t w m (a', Event t b'))
+                               -> EventWriterT t w m a
+                               -> Event t (EventWriterT t w m b)
+                               -> EventWriterT t w m (a, Event t b)
+runWithAccumulationEventWriterTWith f a0 a' = do
+  let g :: EventWriterT t w m c -> m (c, Seq (Event t w))
+      g (EventWriterT r) = runStateT r mempty
+      combine :: Seq (Event t w) -> Event t w
+      combine = fmapCheap sconcat . mergeList . toList
+  (result0, result') <- f (g a0) $ fmap g a'
+  request <- accum (<>) (combine $ snd result0) $ fmapCheap (combine . snd) result'
+  -- We add these two separately to take advantage of the free merge being done later.  The coincidence case must come first so that it has precedence if both fire simultaneously.  (Really, we should probably block the 'switch' whenever 'updated' fires, but switchPromptlyDyn has the same issue.)
+  -- TODO: test if coincidence leads to nasty loop because we are
+  -- recombining the old event into the new event
+  EventWriterT $ modify $ flip (|>) $ coincidence $ updated request
+  EventWriterT $ modify $ flip (|>) $ switch $ current request
+  return (fst result0, fmapCheap fst result')
+
 -- | Construct a new scene with a NodeBuilder
 mainScene :: SpiderNodeBuilder a -> IO a
 mainScene bd = do
     scene <- scene_create
     dtor <- director_getInstance
     winSize <- decode =<< director_getWinSize dtor
-    (result, fins) <- runSpiderHost $ do
+    -- XXX: ignore the initial fins because we are not going to
+    -- deallocate the entire game
+    -- TODO: TEST deallocating Chipmunk space (this probably triggers
+    -- a panic in SpaceStep)
+    (result, _) <- runSpiderHost $ do
       (postBuild, postBuildTriggerRef) <- newEventWithTriggerRef
       rec let fireEvent ds = void . runSpiderHost $ fire ds (return ())
           ticks <- newEventWithTrigger $ \tr -> liftIO $ do
@@ -89,5 +150,5 @@ mainScene bd = do
       readRef postBuildTriggerRef >>= mapM_ (\t -> fire [t ==> ()] $ return ())
       return resultWithFin
     director_getInstance >>= flip director_runWithScene scene
-    runSpiderHost $ runHostFrame fins
+    -- runSpiderHost $ runHostFrame fins
     return result

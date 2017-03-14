@@ -57,8 +57,8 @@ dropWhileE f e = do
     switchPromptly never =<< headE e'
 
 -- | Split an Event into two parts on a condition
-breakE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m (Event t a, Event t a)
-breakE f e = do
+spanE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m (Event t a, Event t a)
+spanE f e = do
     let gateE = fforMaybe e $ \a -> guard (not $ f a) >> return False
     gateDyn <- holdDyn True gateE
     let e' = attachPromptlyDynWithMaybe (\g a -> guard g >> return a) gateDyn e
@@ -66,6 +66,9 @@ breakE f e = do
     bef <- switch <$> hold e' (never <$ gateE')
     aft <- switchPromptly never (e <$ gateE')
     return (bef, aft)
+
+breakE :: (Reflex t, MonadHold t m, MonadFix m) => (a -> Bool) -> Event t a -> m (Event t a, Event t a)
+breakE = spanE . fmap not
 
 -- | Instead of switching over an Event t (Event t a), we return an Event
 -- that merges all these Events together into a single Event t a
