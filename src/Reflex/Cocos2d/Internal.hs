@@ -20,7 +20,6 @@ import Data.Dependent.Map (DMap)
 import Data.Dependent.Sum ((==>))
 import Control.Monad
 import Control.Monad.Trans
-import Control.Monad.Base
 import Control.Monad.Ref
 import Control.Monad.Reader
 import Control.Monad.Identity
@@ -40,6 +39,14 @@ import Graphics.UI.Cocos2d.Director
 import Reflex.Cocos2d.Builder.Base
 import Reflex.Cocos2d.Finalize.Base
 import Reflex.Cocos2d.Accum.Class
+
+import System.IO.Unsafe
+
+-- TODO: refactor all code to use these global variants (speed things up
+-- a bit)
+{-# NOINLINE globalScheduler #-}
+globalScheduler :: Scheduler
+globalScheduler = unsafePerformIO $ director_getInstance >>= director_getScheduler
 
 -- NOTE: some notes
 --
@@ -66,12 +73,24 @@ import Reflex.Cocos2d.Accum.Class
 
 -- type NodeBuilder = PostBuildT Spider ()
 
-
-type SpiderNodeBuilder = PostBuildT Spider (FinalizeT Spider (SpiderHostFrame Global) (ImmediateNodeBuilderT Spider (PerformEventT Spider (SpiderHost Global))))
+type Finalizer = SpiderHostFrame Global
+type SpiderNodeBuilder = PostBuildT Spider (FinalizeT Spider Finalizer (ImmediateNodeBuilderT Spider (PerformEventT Spider (SpiderHost Global))))
 
 -- so that we can lift the finalizer through to m
-instance MonadBase (SpiderHostFrame Global) (PerformEventT Spider (SpiderHost Global)) where
-    liftBase = PerformEventT . lift
+instance MonadIO m => MonadRun Finalizer m where
+    -- XXX: Finalizer *cannot* run directly in PerformEvent because:
+    -- During runWithReplace, the new replacement actions are performed via
+    -- normal requests, which go via the same route as all other
+    -- performEvent_ actions in the live scene. When the replacement is
+    -- actually triggered, it's possible those other performEvent_ actions
+    -- are triggered in the same frame as well - so if the finalizer is run
+    -- directly, a segfault occurs. As safety measure we lift the Finalizer
+    -- type only by running it manually at the end of a cocos loop
+    run fin = liftIO $ do
+        scheduler <- director_getInstance >>= director_getScheduler
+        -- NOTE: we have to make sure the triggering is performed in the main thread
+        scheduler_performFunctionInCocosThread scheduler $
+          runSpiderHost $ runHostFrame fin
 
 -- XXX: why do we have to fix the monad to SpiderHost Global...?
 instance ReflexHost t => MonadAccum t (PerformEventT t (SpiderHost Global)) where
@@ -124,8 +143,6 @@ mainScene bd = do
     winSize <- decode =<< director_getWinSize dtor
     -- XXX: ignore the initial fins because we are not going to
     -- deallocate the entire game
-    -- TODO: TEST deallocating Chipmunk space (this probably triggers
-    -- a panic in SpaceStep)
     (result, _) <- runSpiderHost $ do
       (postBuild, postBuildTriggerRef) <- newEventWithTriggerRef
       rec let fireEvent ds = void . runSpiderHost $ fire ds (return ())

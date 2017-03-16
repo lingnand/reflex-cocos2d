@@ -16,7 +16,6 @@ import Control.Monad.Exception
 import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.Ref
-import Control.Monad.Base
 import Data.Dependent.Sum
 import Debug.Trace
 import Diagrams (V2)
@@ -46,9 +45,6 @@ newtype ImmediateNodeBuilderT t m a = ImmediateNodeBuilderT { unImmediateNodeBui
     , MonadException, MonadAsyncException
     , MonadSample t, MonadHold t
     )
-
-instance (MonadBase b m) => MonadBase b (ImmediateNodeBuilderT t m) where
-    liftBase = lift . liftBase
 
 instance MonadTrans (ImmediateNodeBuilderT t) where
     lift = ImmediateNodeBuilderT . lift
@@ -93,7 +89,7 @@ instance MonadAtomicRef m => MonadAtomicRef (ImmediateNodeBuilderT t m) where
     {-# INLINABLE atomicModifyRef #-}
     atomicModifyRef r = lift . atomicModifyRef r
 
-instance (Ref m ~ Ref IO, MonadRef m, MonadReflexCreateTrigger t m)
+instance (Ref m ~ Ref IO, MonadRef m, MonadReflexCreateTrigger t m, MonadIO m)
   => TriggerEvent t (ImmediateNodeBuilderT t m) where
     {-# INLINABLE newTriggerEvent #-}
     newTriggerEvent = do
@@ -103,8 +99,8 @@ instance (Ref m ~ Ref IO, MonadRef m, MonadReflexCreateTrigger t m)
     newTriggerEventWithOnComplete = do
         fire <- ImmediateNodeBuilderT $ asks fireEvent
         (eResult, reResultTrigger) <- newEventWithTriggerRef
-        return . (,) eResult $ \a cb -> do
-          scheduler <- director_getInstance >>= director_getScheduler
+        scheduler <- liftIO $ director_getInstance >>= director_getScheduler
+        return . (,) eResult $ \a cb ->
           -- NOTE: we have to make sure the triggering is performed in the main thread
           scheduler_performFunctionInCocosThread scheduler $ do
             me <- readRef reResultTrigger
@@ -113,9 +109,9 @@ instance (Ref m ~ Ref IO, MonadRef m, MonadReflexCreateTrigger t m)
     {-# INLINABLE newEventWithLazyTriggerWithOnComplete #-}
     newEventWithLazyTriggerWithOnComplete f = do
         fire <- ImmediateNodeBuilderT $ asks fireEvent
-        newEventWithTrigger $ \t ->
-          f $ \a cb -> do
-            scheduler <- director_getInstance >>= director_getScheduler
+        newEventWithTrigger $ \t -> do
+          scheduler <- director_getInstance >>= director_getScheduler
+          f $ \a cb ->
             -- NOTE: we have to make sure the triggering is performed in the main thread
             scheduler_performFunctionInCocosThread scheduler $ do
               fire $ trace "Triggering event posted to cocos thread" [t ==> a]

@@ -8,6 +8,7 @@ module Reflex.Cocos2d.Finalize.Base
     (
       FinalizeT(..)
     , runFinalizeT
+    , MonadRun(..)
     )
   where
 
@@ -16,7 +17,6 @@ import Control.Monad.Trans.Control
 import Control.Monad.Exception
 import Control.Monad.Ref
 import Control.Monad.State
-import Control.Monad.Base
 import Reflex
 import Reflex.Host.Class
 
@@ -24,6 +24,10 @@ import Reflex.Cocos2d.Finalize.Class
 import Reflex.Cocos2d.Builder.Class
 import Reflex.Cocos2d.Accum.Class
 import Reflex.Cocos2d.FastTriggerEvent.Class
+
+-- | XXX: A fairly contrived class just to make FinalizeT work
+class (Monad n, Monad m) => MonadRun n m where
+    run :: n () -> m ()
 
 newtype FinalizeT t n m a = FinalizeT { unFinalizeT :: StateT (n ()) m a }
   deriving
@@ -109,12 +113,12 @@ instance FastTriggerEvent t m => FastTriggerEvent t (FinalizeT t n m) where
     fastNewTriggerEventWithOnComplete = lift fastNewTriggerEventWithOnComplete
     fastNewEventWithLazyTriggerWithOnComplete = lift . fastNewEventWithLazyTriggerWithOnComplete
 
-instance (MonadBase n m, MonadAdjust t m, MonadFix m, MonadSample t m, MonadHold t m, MonadSample t n)
+instance (MonadRun n m, MonadAdjust t m, MonadFix m, MonadSample t m, MonadHold t m, MonadSample t n)
         => MonadAdjust t (FinalizeT t n m) where
     runWithReplace zm em = do
         rec ((a, finZ), ers) <- lift $ runWithReplace (runFinalizeT zm (return ())) $ ffor em $ \newM -> do
               -- first run the previous finalizer
-              sample finalizerBeh >>= liftBase
+              sample finalizerBeh >>= run
               runFinalizeT newM (return ())
             finalizerBeh <- hold finZ (snd <$> ers)
         -- if this block is ever removed, we still need to clean up the latest finalizer
@@ -124,7 +128,7 @@ instance (MonadBase n m, MonadAdjust t m, MonadFix m, MonadSample t m, MonadHold
     traverseDMapWithKeyWithAdjust _ _ _ = error "traverseDMapWithKeyWithAdjust not implemented for FinalizeT"
     traverseDMapWithKeyWithAdjustWithMove _ _ _ = error "traverseDMapWithKeyWithAdjustWithMove not implemented for FinalizeT"
 
-instance (MonadBase n m, MonadHold t m, MonadFix m, MonadAccum t m, MonadSample t n)
+instance (MonadHold t m, MonadFix m, MonadAccum t m, MonadSample t n)
         => MonadAccum t (FinalizeT t n m) where
     runWithAccumulation zm em = do
         ((a, finZ), ers) <- lift $

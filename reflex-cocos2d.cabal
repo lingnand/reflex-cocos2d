@@ -42,7 +42,6 @@ library
                      , containers
                      , semigroups
                      , mtl
-                     , transformers-base
                      , monad-control
                      , prim-uniq
                      , primitive
