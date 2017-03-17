@@ -28,6 +28,7 @@ import Reflex.Host.Class
 import Reflex.Cocos2d.Accum.Class
 import Reflex.Cocos2d.Builder.Class
 import Reflex.Cocos2d.FastTriggerEvent.Class
+import Reflex.Cocos2d.Internal.Global (globalScheduler)
 
 -- implementation via
 data NodeBuilderEnv t = NodeBuilderEnv
@@ -99,10 +100,9 @@ instance (Ref m ~ Ref IO, MonadRef m, MonadReflexCreateTrigger t m, MonadIO m)
     newTriggerEventWithOnComplete = do
         fire <- ImmediateNodeBuilderT $ asks fireEvent
         (eResult, reResultTrigger) <- newEventWithTriggerRef
-        scheduler <- liftIO $ director_getInstance >>= director_getScheduler
         return . (,) eResult $ \a cb ->
           -- NOTE: we have to make sure the triggering is performed in the main thread
-          scheduler_performFunctionInCocosThread scheduler $ do
+          scheduler_performFunctionInCocosThread globalScheduler $ do
             me <- readRef reResultTrigger
             forM_ (trace "Triggering event posted to cocos thread" me) $ \t -> fire [t ==> a]
             cb
@@ -110,10 +110,9 @@ instance (Ref m ~ Ref IO, MonadRef m, MonadReflexCreateTrigger t m, MonadIO m)
     newEventWithLazyTriggerWithOnComplete f = do
         fire <- ImmediateNodeBuilderT $ asks fireEvent
         newEventWithTrigger $ \t -> do
-          scheduler <- director_getInstance >>= director_getScheduler
           f $ \a cb ->
             -- NOTE: we have to make sure the triggering is performed in the main thread
-            scheduler_performFunctionInCocosThread scheduler $ do
+            scheduler_performFunctionInCocosThread globalScheduler $ do
               fire $ trace "Triggering event posted to cocos thread" [t ==> a]
               cb
 

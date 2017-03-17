@@ -1,6 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Reflex.Cocos2d.Event
     ( MouseEvents(MouseEvents)
     , mouseDown
@@ -86,11 +87,13 @@ import Graphics.UI.Cocos2d (Decodable(..), HasContents(..))
 import Reflex
 
 import Graphics.UI.Cocos2d.Event hiding (Event)
+import qualified Graphics.UI.Cocos2d.Event as CE
 import Graphics.UI.Cocos2d.Director
 import Graphics.UI.Cocos2d.Texture
 
 import Reflex.Cocos2d.FastTriggerEvent.Class
 import Reflex.Cocos2d.Types
+import Reflex.Cocos2d.Internal.Global (globalEventDispatcher, globalTextureCache)
 
 -- Event Packages
 data MouseEvents t = MouseEvents
@@ -251,33 +254,33 @@ keyReleased f (KeyboardEvents pressed released)
 
 -- Event listeners
 -- We generally put the listener to priority > scene graph (negative numbers)
-getMouseEvents :: (MonadIO m, FastTriggerEvent t m) => m (MouseEvents t)
+getMouseEvents :: forall t m. (MonadIO m, FastTriggerEvent t m) => m (MouseEvents t)
 getMouseEvents = do
-    ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
-    let wrapEvent callbackSetter =
+    let wrapEvent :: (EventListenerMouse -> (EventMouse -> IO ()) -> IO ()) -> m (Event t Mouse)
+        wrapEvent callbackSetter =
           fastNewEventWithLazyTriggerWithOnComplete $ \triggerFunc -> do
             l <- eventListenerMouse_create
             callbackSetter l $ \em -> do
               m <- decode em
               triggerFunc m (return ())
-            eventDispatcher_addEventListenerWithFixedPriority ed l (-1)
-            return $ eventDispatcher_removeEventListener ed l
+            eventDispatcher_addEventListenerWithFixedPriority globalEventDispatcher l (-1)
+            return $ eventDispatcher_removeEventListener globalEventDispatcher l
     MouseEvents <$> wrapEvent eventListenerMouse_onMouseDown_set
                 <*> wrapEvent eventListenerMouse_onMouseUp_set
                 <*> wrapEvent eventListenerMouse_onMouseMove_set
                 <*> wrapEvent eventListenerMouse_onMouseScroll_set
 
-getTouchEvents :: (MonadIO m, FastTriggerEvent t m) => m (TouchEvents t)
+getTouchEvents :: forall t m. (MonadIO m, FastTriggerEvent t m) => m (TouchEvents t)
 getTouchEvents = do
-    ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
-    let wrapEvent callbackSetter =
+    let wrapEvent :: (EventListenerTouchOneByOne -> (EventTouch -> CE.Event -> IO ()) -> IO ()) -> m (Event t Touch)
+        wrapEvent callbackSetter =
           fastNewEventWithLazyTriggerWithOnComplete $ \triggerFunc -> do
             l <- eventListenerTouchOneByOne_create
-            callbackSetter l $ \(et :: EventTouch) _ -> do
+            callbackSetter l $ \et _ -> do
               t <- decode et
               triggerFunc t (return ())
-            eventDispatcher_addEventListenerWithFixedPriority ed l (-1)
-            return $ eventDispatcher_removeEventListener ed l
+            eventDispatcher_addEventListenerWithFixedPriority globalEventDispatcher l (-1)
+            return $ eventDispatcher_removeEventListener globalEventDispatcher l
         setOnTouchBegan l cb =
           -- always return True (handles the Touch)
           eventListenerTouchOneByOne_onTouchBegan_set l $ \et evt -> cb et evt >> return True
@@ -286,43 +289,44 @@ getTouchEvents = do
                 <*> wrapEvent eventListenerTouchOneByOne_onTouchEnded_set
                 <*> wrapEvent eventListenerTouchOneByOne_onTouchCancelled_set
 
-getMultiTouchEvents :: (MonadIO m, FastTriggerEvent t m) => m (MultiTouchEvents t)
+getMultiTouchEvents :: forall t m. (MonadIO m, FastTriggerEvent t m) => m (MultiTouchEvents t)
 getMultiTouchEvents = do
-    ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
-    let wrapEvent callbackSetter =
+    let wrapEvent :: (EventListenerTouchAllAtOnce -> (EventTouchVectorConst -> CE.Event -> IO ()) -> IO ())
+                  -> m (Event t [Touch])
+        wrapEvent callbackSetter =
           fastNewEventWithLazyTriggerWithOnComplete $ \triggerFunc -> do
             l <- eventListenerTouchAllAtOnce_create
             callbackSetter l $ \ets _ -> do
               -- convert ets to a list of Touches
               ts <- toContents ets >>= mapM decode
               triggerFunc ts (return ())
-            eventDispatcher_addEventListenerWithFixedPriority ed l (-1)
-            return $ eventDispatcher_removeEventListener ed l
+            eventDispatcher_addEventListenerWithFixedPriority globalEventDispatcher l (-1)
+            return $ eventDispatcher_removeEventListener globalEventDispatcher l
     MultiTouchEvents <$> wrapEvent eventListenerTouchAllAtOnce_onTouchesBegan_set
                      <*> wrapEvent eventListenerTouchAllAtOnce_onTouchesMoved_set
                      <*> wrapEvent eventListenerTouchAllAtOnce_onTouchesEnded_set
                      <*> wrapEvent eventListenerTouchAllAtOnce_onTouchesCancelled_set
 
-getKeyboardEvents :: (MonadIO m, FastTriggerEvent t m) => m (KeyboardEvents t)
+getKeyboardEvents :: forall t m. (MonadIO m, FastTriggerEvent t m) => m (KeyboardEvents t)
 getKeyboardEvents = do
-    ed <- liftIO $ director_getInstance >>= director_getEventDispatcher
-    let wrapEvent callbackSetter =
+    let wrapEvent :: (EventListenerKeyboard -> (KeyCode -> CE.Event -> IO ()) -> IO ())
+                  -> m (Event t KeyCode)
+        wrapEvent callbackSetter =
           fastNewEventWithLazyTriggerWithOnComplete $ \triggerFunc -> do
             l <- eventListenerKeyboard_create
             callbackSetter l $ \kc _ -> triggerFunc kc (return ())
-            eventDispatcher_addEventListenerWithFixedPriority ed l (-1)
-            return $ eventDispatcher_removeEventListener ed l
+            eventDispatcher_addEventListenerWithFixedPriority globalEventDispatcher l (-1)
+            return $ eventDispatcher_removeEventListener globalEventDispatcher l
     KeyboardEvents <$> wrapEvent eventListenerKeyboard_onKeyPressed_set
                    <*> wrapEvent eventListenerKeyboard_onKeyReleased_set
 
 getAccelerations :: FastTriggerEvent t m => m (Event t Acceleration)
 getAccelerations = fastNewEventWithLazyTriggerWithOnComplete $ \triggerFunc -> do
-    ed <- director_getInstance >>= director_getEventDispatcher
     l <- eventListenerAcceleration_create $ \ea _ -> do
             a <- decode ea
             triggerFunc a (return ())
-    eventDispatcher_addEventListenerWithFixedPriority ed l (-1)
-    return $ eventDispatcher_removeEventListener ed l
+    eventDispatcher_addEventListenerWithFixedPriority globalEventDispatcher l (-1)
+    return $ eventDispatcher_removeEventListener globalEventDispatcher l
 
 -- | Convenience function to obtain currently held keys
 accumKeysDown ::
@@ -389,14 +393,18 @@ accumKeysDown (KeyboardEvents pressedE releasedE) = do
 --     return e'
 
 -- | NOTE: we can't return the texture because it's an autoreleased object
-loadTexture :: (MonadIO m, FastTriggerEvent t m) => String -> m (Event t ())
+-- Also - we run the actual loading on postBuild so we rule out possibility
+-- of incomplete network when loading finishes
+loadTexture :: ( MonadIO m, FastTriggerEvent t m, PostBuild t m
+               , PerformEvent t m, MonadIO (Performable m) )
+            => String -> m (Event t ())
 loadTexture path = do
     -- Since we are not sure if the user would subscribe to the resulting event, we can't just use
     -- lazyTrigger
     (e, triggerFunc) <- fastNewTriggerEvent
-    liftIO $ do
-      tc <- director_getInstance >>= director_getTextureCache
-      textureCache_addImageAsync tc path $ \_ -> triggerFunc ()
+    postE <- getPostBuild
+    performEvent_ . ffor postE $ \_ -> liftIO $
+      textureCache_addImageAsync globalTextureCache path $ \_ -> triggerFunc ()
     return e
 
 -- | Load a list of resources in an async manner

@@ -23,6 +23,7 @@ library
                      , Reflex.Cocos2d.Accum.Class
                      , Reflex.Cocos2d.Attributes.Base
                      , Reflex.Cocos2d.Attributes.Node
+                     , Reflex.Cocos2d.FastTriggerEvent.Class
                      , Reflex.Cocos2d.Misc.Audio
                      , Reflex.Cocos2d.Misc.Chipmunk
                      , Reflex.Cocos2d.Event
@@ -31,7 +32,7 @@ library
                      , Reflex.Extra
                      , Reflex.State
                      , Data.Pool
-  other-modules:       Reflex.Cocos2d.FastTriggerEvent.Class
+  other-modules:       Reflex.Cocos2d.Internal.Global
   ghc-options:         -Wall -fno-warn-orphans -fno-warn-name-shadowing
   -- ghc-options:         -w -fprint-potential-instances
   -- -Wall -fno-warn-orphans -fno-warn-name-shadowing

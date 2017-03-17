@@ -39,14 +39,7 @@ import Graphics.UI.Cocos2d.Director
 import Reflex.Cocos2d.Builder.Base
 import Reflex.Cocos2d.Finalize.Base
 import Reflex.Cocos2d.Accum.Class
-
-import System.IO.Unsafe
-
--- TODO: refactor all code to use these global variants (speed things up
--- a bit)
-{-# NOINLINE globalScheduler #-}
-globalScheduler :: Scheduler
-globalScheduler = unsafePerformIO $ director_getInstance >>= director_getScheduler
+import Reflex.Cocos2d.Internal.Global (globalDirector, globalScheduler)
 
 -- NOTE: some notes
 --
@@ -86,10 +79,9 @@ instance MonadIO m => MonadRun Finalizer m where
     -- are triggered in the same frame as well - so if the finalizer is run
     -- directly, a segfault occurs. As safety measure we lift the Finalizer
     -- type only by running it manually at the end of a cocos loop
-    run fin = liftIO $ do
-        scheduler <- director_getInstance >>= director_getScheduler
+    run fin = liftIO $
         -- NOTE: we have to make sure the triggering is performed in the main thread
-        scheduler_performFunctionInCocosThread scheduler $
+        scheduler_performFunctionInCocosThread globalScheduler $
           runSpiderHost $ runHostFrame fin
 
 -- XXX: why do we have to fix the monad to SpiderHost Global...?
@@ -139,33 +131,30 @@ runWithAccumulationEventWriterTWith f a0 a' = do
 mainScene :: SpiderNodeBuilder a -> IO a
 mainScene bd = do
     scene <- scene_create
-    dtor <- director_getInstance
-    winSize <- decode =<< director_getWinSize dtor
-    -- XXX: ignore the initial fins because we are not going to
-    -- deallocate the entire game
-    (result, _) <- runSpiderHost $ do
+    winSize <- decode =<< director_getWinSize globalDirector
+    result <- runSpiderHost $ do
       (postBuild, postBuildTriggerRef) <- newEventWithTriggerRef
       rec let fireEvent ds = void . runSpiderHost $ fire ds (return ())
           ticks <- newEventWithTrigger $ \tr -> liftIO $ do
-            sch <- director_getScheduler dtor
-            let target = castPtr $ toPtr dtor
-            scheduler_scheduleWithInterval sch
+            let target = castPtr $ toPtr globalDirector
+            scheduler_scheduleWithInterval globalScheduler
               (\ss -> fireEvent [tr ==> ss])
               target 0 False "ticks"
-            return $ scheduler_unschedule sch "ticks" target
+            return $ scheduler_unschedule globalScheduler "ticks" target
           let env = NodeBuilderEnv
                   { parent = toNode scene
                   , windowSize = winSize
                   , frameTicks = ticks
                   , fireEvent = fireEvent
                   }
-          (resultWithFin, FireCommand fire) <- hostPerformEventT $
+          -- XXX: ignore the initial fins because we are not going to
+          -- deallocate the entire game
+          ((result, _), FireCommand fire) <- hostPerformEventT $
               flip runImmediateNodeBuilderT env $
               flip runFinalizeT (return ()) $
               runPostBuildT bd postBuild
       -- fire the post build event
       readRef postBuildTriggerRef >>= mapM_ (\t -> fire [t ==> ()] $ return ())
-      return resultWithFin
-    director_getInstance >>= flip director_runWithScene scene
-    -- runSpiderHost $ runHostFrame fins
+      return result
+    director_runWithScene globalDirector scene
     return result
