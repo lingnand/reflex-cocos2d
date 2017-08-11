@@ -86,7 +86,7 @@ instance MonadIO m => MonadRun Finalizer m where
           runSpiderHost $ runHostFrame fin
 
 -- XXX: why do we have to fix the monad to SpiderHost Global...?
-instance ReflexHost t => MonadAccum t (PerformEventT t (SpiderHost Global)) where
+instance (ReflexHost t, PrimMonad (HostFrame t)) => MonadAccum t (PerformEventT t (SpiderHost Global)) where
     runWithAccumulation outerA0 outerA' = PerformEventT $ runWithAccumulationRequesterTWith f (coerce outerA0) (coerceEvent outerA')
       where f :: PrimMonad (HostFrame t) => HostFrame t a -> Event t (HostFrame t b) -> RequesterT t (HostFrame t) Identity (HostFrame t) (a, Event t b)
             f a0 a' = do
