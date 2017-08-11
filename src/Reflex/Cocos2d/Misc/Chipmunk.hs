@@ -454,8 +454,9 @@ category = mapAttrib fromMask toMask categoryMask
 collisionMask :: (MonadIO m, ShapePtr a s) => Attrib' s m Word64
 collisionMask = liftStateVar $ H.collisionMask . toShape
 
-group :: (MonadIO m, ShapePtr a s) => Attrib' s m Word64
-group = liftStateVar $ H.group . toShape
+-- on some systems e.g., Android, group can be a 32 bit integer, so we downscale all to 32
+group :: (MonadIO m, ShapePtr a s) => Attrib' s m Word32
+group = liftStateVar $ S.mapStateVar fromIntegral fromIntegral . H.group . toShape
 
 elasticity :: (MonadIO m, ShapePtr a s) => Attrib' s m Float
 elasticity = liftStateVarToFloat $ H.elasticity . toShape
