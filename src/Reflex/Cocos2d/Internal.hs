@@ -2,6 +2,7 @@
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 module Reflex.Cocos2d.Internal
     (
@@ -87,7 +88,7 @@ instance MonadIO m => MonadRun Finalizer m where
 -- XXX: why do we have to fix the monad to SpiderHost Global...?
 instance ReflexHost t => MonadAccum t (PerformEventT t (SpiderHost Global)) where
     runWithAccumulation outerA0 outerA' = PerformEventT $ runWithAccumulationRequesterTWith f (coerce outerA0) (coerceEvent outerA')
-      where f :: HostFrame t a -> Event t (HostFrame t b) -> RequesterT t (HostFrame t) Identity (HostFrame t) (a, Event t b)
+      where f :: PrimMonad (HostFrame t) => HostFrame t a -> Event t (HostFrame t b) -> RequesterT t (HostFrame t) Identity (HostFrame t) (a, Event t b)
             f a0 a' = do
               result0 <- lift a0
               result' <- requestingIdentity a'
