@@ -26,6 +26,7 @@ library
                      , Reflex.Cocos2d.FastTriggerEvent.Class
                      , Reflex.Cocos2d.Misc.Audio
                      , Reflex.Cocos2d.Misc.Chipmunk
+                     , Reflex.Cocos2d.Misc.Logging
                      , Reflex.Cocos2d.Event
                      , Reflex.Cocos2d.Types
                      , Reflex.Cocos2d.Internal
@@ -61,5 +62,6 @@ library
                      , Hipmunk
                      , StateVar
                      , MonadRandom
+                     , lifted-base
   hs-source-dirs:      src
   default-language:    Haskell2010

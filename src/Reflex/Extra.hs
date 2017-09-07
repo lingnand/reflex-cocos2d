@@ -159,11 +159,11 @@ runWithReplaceFree ::
   (MonadFix m , PostBuild t m , MonadHold t m, MonadAdjust t m)
   => FreeT (Event t) m a -> m (Event t a)
 runWithReplaceFree ft = do
-    rec (result0, newResult) <- runWithReplace (runFreeT ft) (traceEventWith (const "FreeT computation fired") (runFreeT <$> newFs))
+    rec (result0, newResult) <- runWithReplace (runFreeT ft) (runFreeT <$> newFs)
         let startE = case result0 of
               Pure _ -> never :: Event t (FreeT (Event t) m a)
               Free e -> e
-        newFs <- switchPromptly startE $ (traceEventWith (const "FreeT result arrived") $ fmapMaybe previewFree newResult)
+        newFs <- switchPromptly startE (fmapMaybe previewFree newResult)
     case result0 of
       Pure a -> postpone a
       _ -> return $ fmapMaybe previewPure newResult
