@@ -10,13 +10,15 @@ module Reflex.Cocos2d.Misc.Logging
   ) where
 
 import System.IO.Unsafe
+import Foreign.C.String
 import Data.Time
 import Control.Monad.Trans
 import Control.Monad.Trans.Control
 import Control.Exception.Lifted
+import qualified Graphics.UI.Cocos2d.Utils as C
 
 debug :: MonadIO m => String -> m ()
-debug = undefined
+debug = liftIO . flip withCString C.debug
 
 -- inspired by Control.Logging from logging
 timedDebug :: (MonadBaseControl IO m, MonadIO m) => String -> m a -> m a
