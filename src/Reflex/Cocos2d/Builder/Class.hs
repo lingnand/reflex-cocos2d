@@ -4,6 +4,7 @@
 module Reflex.Cocos2d.Builder.Class
   ( Time
   , NodeBuilder(..)
+  , (-<<)
   , (-<)
   ) where
 
@@ -41,11 +42,19 @@ instance NodeBuilder t m => NodeBuilder t (AccStateT t f s m) where
 
 -- * Compositions
 -- | Embed
--- e.g., @nodeBuilder -< child@
-infixr 2 -<
-(-<) :: (NodePtr n, NodeBuilder t m)
-     => m n -> m a -> m (n, a)
-(-<) node child = do
+-- e.g., @nodeBuilder -<< child@
+infixr 2 -<<
+(-<<)
+  :: (NodePtr n, NodeBuilder t m)
+  => m n -> m a -> m (n, a)
+(-<<) node child = do
     n <- node
     a <- withParent (toNode n) child
     return (n, a)
+
+-- | Embed with result from first computation thrown away after adding the child
+infixr 2 -<
+(-<)
+  :: (NodePtr n, NodeBuilder t m)
+  => m n -> m a -> m a
+(-<) node child = snd <$> (node -<< child)
