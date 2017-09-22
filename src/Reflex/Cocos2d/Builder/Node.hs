@@ -6,10 +6,6 @@
 module Reflex.Cocos2d.Builder.Node
     ( node
     , node_
-    , layer
-    , layer_
-    , layerColor
-    , layerColor_
     , sprite
     , sprite_
     -- utils --
@@ -22,14 +18,10 @@ module Reflex.Cocos2d.Builder.Node
     , addNewChild
     -- re-export --
     , Node
-    , Layer
-    , LayerColor
     , Sprite
     , Texture2D
 
     , NodePtr(..)
-    , LayerPtr
-    , LayerColorPtr
     , SpritePtr
     )
   where
@@ -38,7 +30,6 @@ import Control.Monad
 import Control.Monad.Trans
 import Graphics.UI.Cocos2d.Texture
 import Graphics.UI.Cocos2d.Node
-import Graphics.UI.Cocos2d.Layer
 import Graphics.UI.Cocos2d.Widget
 
 -- import Graphics.UI.Cocos2d.Action
@@ -74,26 +65,6 @@ node_ :: ( MonadIO m, NodeBuilder t m
          , MonadFinalize m, MonadIO (Finalizable m) )
       => [Prop Node m] -> m ()
 node_ = void . node
-
-layer :: ( MonadIO m, NodeBuilder t m
-         , MonadFinalize m, MonadIO (Finalizable m) )
-      => [Prop Layer m] -> m Layer
-layer = addNewChild layer_create
-
-layer_ :: ( MonadIO m, NodeBuilder t m
-          , MonadFinalize m, MonadIO (Finalizable m) )
-       => [Prop Layer m] -> m ()
-layer_ = void . layer
-
-layerColor :: ( MonadIO m, NodeBuilder t m
-              , MonadFinalize m, MonadIO (Finalizable m) )
-           => [Prop LayerColor m] -> m LayerColor
-layerColor = addNewChild layerColor_create
-
-layerColor_ :: ( MonadIO m, NodeBuilder t m
-            , MonadFinalize m, MonadIO (Finalizable m) )
-            => [Prop LayerColor m] -> m ()
-layerColor_ = void . layerColor
 
 -- * Sprite
 
