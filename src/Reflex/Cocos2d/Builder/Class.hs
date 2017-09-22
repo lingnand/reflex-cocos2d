@@ -8,11 +8,11 @@ module Reflex.Cocos2d.Builder.Class
     )
   where
 
-import Diagrams (V2)
 import Control.Monad.Trans
 import Control.Monad.Trans.Control
 import Reflex
 import Reflex.State
+import Graphics.UI.Cocos2d (Size)
 import Graphics.UI.Cocos2d.Node
 
 type Time = Float -- ^ in seconds
@@ -22,7 +22,7 @@ class (Reflex t, Monad m) => NodeBuilder t m | m -> t where
     -- | Execute an action with a different parent
     withParent :: Node -> m a -> m a
 
-    getWindowSize :: m (V2 Float)
+    getWindowSize :: m (Size Float)
     -- | Ticks for each frame
     getFrameTicks :: m (Event t Time)
 

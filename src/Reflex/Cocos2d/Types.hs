@@ -19,6 +19,15 @@ module Reflex.Cocos2d.Types
     , shadowBlur
     , Glow(Glow)
     , glowColor
+
+    -- re-export cocos2d-hs types
+    , Size(..)
+    , size_width
+    , size_height
+
+    , Rect(..)
+    , rect_origin
+    , rect_size
     )
   where
 
@@ -30,6 +39,7 @@ import Data.Colour.Names
 
 import Graphics.UI.Cocos2d (Decodable(..))
 import Graphics.UI.Cocos2d.Event
+import Graphics.UI.Cocos2d.Extra
 
 data Mouse = Mouse
     { _mouseCursorLocation :: P2 Float

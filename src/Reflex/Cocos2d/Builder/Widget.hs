@@ -49,7 +49,7 @@ import Control.Monad
 import Control.Monad.Trans
 import Control.Lens hiding (contains)
 
-import Graphics.UI.Cocos2d (Decodable(..), CppPtr(..))
+import Graphics.UI.Cocos2d (Decodable(..), CppPtr(..), Size(..))
 
 import Graphics.UI.Cocos2d.Widget
 import Graphics.UI.Cocos2d.Common
@@ -184,7 +184,7 @@ instance MonadIO m => HasRWTextAttrib Text m where
     where set l (Just (Outline sColor sSize)) = liftIO $ text_enableOutlineWithSize l sColor sSize
           set l _ = liftIO $ text_disableLabelEffect l LabelEffect_Outline
   shadow = WOAttrib set
-    where set l (Just (Shadow shColor shOffset shBlur)) = liftIO $ text_enableShadowWithOffset l shColor shOffset shBlur
+    where set l (Just (Shadow shColor shOffset shBlur)) = liftIO $ text_enableShadowWithOffset l shColor (S shOffset) shBlur
           set l _ = liftIO $ text_disableLabelEffect l LabelEffect_Shadow
   glow = WOAttrib set
     where set l (Just (Glow glColor)) = liftIO $ text_enableGlow l glColor

@@ -63,6 +63,9 @@ extra-deps:
 flags:
     reflex:
         specialize-to-spidertimeline-global: true
+    cocos2d-hs:
+        target-mac: true
+        no-gen: true
 
 # Extra package databases containing global packages
 extra-package-dbs: []

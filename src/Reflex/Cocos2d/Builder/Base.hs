@@ -18,8 +18,8 @@ import Control.Monad.Reader
 import Control.Monad.Ref
 import Data.Dependent.Sum
 import Debug.Trace
-import Diagrams (V2)
 
+import Graphics.UI.Cocos2d (Size)
 import Graphics.UI.Cocos2d.Director
 import Graphics.UI.Cocos2d.Node
 import Reflex
@@ -33,7 +33,7 @@ import Reflex.Cocos2d.Internal.Global (globalScheduler)
 -- implementation via
 data NodeBuilderEnv t = NodeBuilderEnv
     { parent      :: !Node
-    , windowSize  :: !(V2 Float)
+    , windowSize  :: !(Size Float)
     , frameTicks  :: !(Event t Time)
     -- different from FireCommand in that it's already lifted into IO
     , fireEvent :: !([DSum (EventTrigger t) Identity] -> IO ())
@@ -109,7 +109,7 @@ instance (Ref m ~ Ref IO, MonadRef m, MonadReflexCreateTrigger t m, MonadIO m)
     {-# INLINABLE newEventWithLazyTriggerWithOnComplete #-}
     newEventWithLazyTriggerWithOnComplete f = do
         fire <- ImmediateNodeBuilderT $ asks fireEvent
-        newEventWithTrigger $ \t -> do
+        newEventWithTrigger $ \t ->
           f $ \a cb ->
             -- NOTE: we have to make sure the triggering is performed in the main thread
             scheduler_performFunctionInCocosThread globalScheduler $ do

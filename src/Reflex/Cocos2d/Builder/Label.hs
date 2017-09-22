@@ -27,7 +27,7 @@ import Diagrams (V2(..))
 import Control.Monad
 import Control.Monad.Trans
 
-import Graphics.UI.Cocos2d (Decodable(..))
+import Graphics.UI.Cocos2d (Decodable(..), Size(..))
 import Graphics.UI.Cocos2d.Common
 import Graphics.UI.Cocos2d.Label
 
@@ -61,7 +61,7 @@ instance MonadIO m => HasRWTextAttrib Label m where
     where set l (Just (Outline sColor sSize)) = liftIO $ label_enableOutlineWithSize l sColor sSize
           set l _ = liftIO $ label_disableLabelEffect l LabelEffect_Outline
   shadow = WOAttrib set
-    where set l (Just (Shadow shColor shOffset shBlur)) = liftIO $ label_enableShadowWithOffset l shColor shOffset shBlur
+    where set l (Just (Shadow shColor shOffset shBlur)) = liftIO $ label_enableShadowWithOffset l shColor (S shOffset) shBlur
           set l _ = liftIO $ label_disableLabelEffect l LabelEffect_Shadow
   glow = WOAttrib set
     where set l (Just (Glow glColor)) = liftIO $ label_enableGlow l glColor
@@ -74,8 +74,8 @@ maxLineWidth :: (MonadIO m, LabelPtr l) => Attrib' l m Float
 maxLineWidth = hoistA liftIO $ Attrib label_getMaxLineWidth label_setMaxLineWidth
 
 -- | corresponding to setDimensions
-boundingSize :: (MonadIO m, LabelPtr l) => Attrib' l m (V2 Float)
-boundingSize = hoistA liftIO $ Attrib (decode <=< label_getDimensions) (\l (V2 w h) -> label_setDimensions l w h)
+boundingSize :: (MonadIO m, LabelPtr l) => Attrib' l m (Size Float)
+boundingSize = hoistA liftIO $ Attrib (decode <=< label_getDimensions) (\l (S (V2 w h)) -> label_setDimensions l w h)
 
 -- | corresponding to setWidth
 boundingWidth :: (MonadIO m, LabelPtr l) => Attrib' l m Float

@@ -23,6 +23,7 @@ module Reflex.Cocos2d.Attributes.Node
     -- , action
     , texture
     , textureFilename
+    , textureRect
     , flipped
     , flippedX
     , flippedY
@@ -35,7 +36,7 @@ import Control.Monad.Trans
 import Control.Lens ((^.))
 
 import Diagrams (Point(..), V2(..), (@@), deg)
-import Graphics.UI.Cocos2d (Decodable(..), nullptr)
+import Graphics.UI.Cocos2d (Decodable(..), nullptr, Size(..), Rect)
 import Graphics.UI.Cocos2d.Node
 import Graphics.UI.Cocos2d.Sprite
 import Graphics.UI.Cocos2d.Texture
@@ -149,24 +150,24 @@ cascadeOpacity :: (MonadIO m, NodePtr n) => Attrib' n m Bool
 cascadeOpacity = hoistA liftIO $ Attrib node_isCascadeOpacityEnabled node_setCascadeOpacityEnabled
 
 -- | Content size; not useful for Sprite
-contentSize :: (MonadIO m, NodePtr n) => Attrib' n m (V2 Float)
+contentSize :: (MonadIO m, NodePtr n) => Attrib' n m (Size Float)
 contentSize = hoistA liftIO $ Attrib (decode <=< node_getContentSize) node_setContentSize
 
 width :: (MonadIO m, NodePtr n) => Attrib' n m Float
 width = hoistA liftIO $ Attrib getter setter
   where
-    getter = size_width_get <=< node_getContentSize
+    getter = rawSize_width_get <=< node_getContentSize
     setter n w = do
-      h <- size_height_get =<< node_getContentSize n
-      node_setContentSize n (V2 w h)
+      h <- rawSize_height_get =<< node_getContentSize n
+      node_setContentSize n (S $ V2 w h)
 
 height :: (MonadIO m, NodePtr n) => Attrib' n m Float
 height = hoistA liftIO $ Attrib getter setter
   where
-    getter = size_height_get <=< node_getContentSize
+    getter = rawSize_height_get <=< node_getContentSize
     setter n h = do
-      w <- size_width_get =<< node_getContentSize n
-      node_setContentSize n (V2 w h)
+      w <- rawSize_width_get =<< node_getContentSize n
+      node_setContentSize n (S $ V2 w h)
 
 texture :: (MonadIO m, SpritePtr n) => WOAttrib' n m Texture2D
 texture = WOAttrib $ \sp -> liftIO . sprite_setTexture sp
@@ -184,6 +185,9 @@ textureFilename :: (MonadIO m, SpritePtr n) => WOAttrib' n m String
 textureFilename = WOAttrib $ \sp name -> liftIO $ case name of
                     [] -> sprite_setTexture sp (nullptr :: Texture2D) -- reset sprite to blank
                     _ -> sprite_setTextureWithFilename sp name
+
+textureRect :: (MonadIO m, SpritePtr n) => WOAttrib' n m (Rect Float)
+textureRect = WOAttrib $ \sp rect -> liftIO $ sprite_setTextureRect sp rect
 
 flipped :: (MonadIO m, SpritePtr n) => Attrib' n m (V2 Bool)
 flipped = hoistA liftIO $ Attrib getter setter
