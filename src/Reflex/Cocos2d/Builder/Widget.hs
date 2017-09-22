@@ -8,40 +8,39 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Reflex.Cocos2d.Builder.Widget
-    ( getWidgetTouchEvents
-    , getWidgetClicks
-    , getWidgetEvents
-    , findButtonByName
-    , findTextByName
-    , findLayoutByName
-    -- data types
-    , WidgetTouchEvents(WidgetTouchEvents)
-    , HasWidgetTouchEvents(..)
-    , WidgetEvents(WidgetEvents)
-    , widgetClicked
-    -- creation
-    , button
-    -- attrs
-    , sizeType
-    , positionType
-    , sizePercent
-    , positionPercent
-    , titleText
-    , titleColor
-    , titleFontSize
-    -- re-export --
-    , PositionType(..)
-    , SizeType(..)
-    , Widget
-    , WidgetPtr
-    , Button
-    , ButtonPtr
-    , Text
-    , TextPtr
-    , Layout
-    , LayoutPtr
-    )
-  where
+  ( getWidgetTouchEvents
+  , getWidgetClicks
+  , getWidgetEvents
+  , findButtonByName
+  , findTextByName
+  , findLayoutByName
+  -- data types
+  , WidgetTouchEvents(WidgetTouchEvents)
+  , HasWidgetTouchEvents(..)
+  , WidgetEvents(WidgetEvents)
+  , widgetClicked
+  -- creation
+  , button
+  -- attrs
+  , sizeType
+  , positionType
+  , sizePercent
+  , positionPercent
+  , titleText
+  , titleColor
+  , titleFontSize
+  -- re-export --
+  , PositionType(..)
+  , SizeType(..)
+  , Widget
+  , WidgetPtr
+  , Button
+  , ButtonPtr
+  , Text
+  , TextPtr
+  , Layout
+  , LayoutPtr
+  ) where
 
 import Data.Colour
 import Diagrams (V2(..))

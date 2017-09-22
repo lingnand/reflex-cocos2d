@@ -1,8 +1,7 @@
 module Reflex.Cocos2d
-    (
-      module X
-    )
-  where
+  (
+    module X
+  ) where
 
 import Reflex.Cocos2d.Finalize.Base as X
 import Reflex.Cocos2d.Finalize.Class as X

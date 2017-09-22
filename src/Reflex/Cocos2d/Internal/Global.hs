@@ -1,11 +1,10 @@
 module Reflex.Cocos2d.Internal.Global
-    (
-      globalDirector
-    , globalScheduler
-    , globalEventDispatcher
-    , globalTextureCache
-    )
-  where
+  (
+    globalDirector
+  , globalScheduler
+  , globalEventDispatcher
+  , globalTextureCache
+  ) where
 
 import System.IO.Unsafe
 

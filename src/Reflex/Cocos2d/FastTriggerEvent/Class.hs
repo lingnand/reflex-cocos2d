@@ -2,10 +2,9 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Reflex.Cocos2d.FastTriggerEvent.Class
-    (
-      FastTriggerEvent(..)
-    )
-  where
+  (
+    FastTriggerEvent(..)
+  ) where
 
 import Reflex
 import Control.Monad.Trans

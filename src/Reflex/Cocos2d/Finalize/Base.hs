@@ -5,12 +5,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecursiveDo #-}
 module Reflex.Cocos2d.Finalize.Base
-    (
-      FinalizeT(..)
-    , runFinalizeT
-    , MonadRun(..)
-    )
-  where
+  (
+    FinalizeT(..)
+  , runFinalizeT
+  , MonadRun(..)
+  ) where
 
 import Control.Monad.Trans
 import Control.Monad.Trans.Control

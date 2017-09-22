@@ -2,11 +2,10 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Reflex.Cocos2d.Builder.Class
-    ( Time
-    , NodeBuilder(..)
-    , (-<)
-    )
-  where
+  ( Time
+  , NodeBuilder(..)
+  , (-<)
+  ) where
 
 import Control.Monad.Trans
 import Control.Monad.Trans.Control

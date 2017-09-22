@@ -5,12 +5,11 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 module Reflex.Cocos2d.Builder.Base
-    (
-      NodeBuilderEnv(..)
-    , ImmediateNodeBuilderT(..)
-    , runImmediateNodeBuilderT
-    )
-  where
+  (
+    NodeBuilderEnv(..)
+  , ImmediateNodeBuilderT(..)
+  , runImmediateNodeBuilderT
+  ) where
 
 import Control.Monad.Exception
 import Control.Monad.Identity

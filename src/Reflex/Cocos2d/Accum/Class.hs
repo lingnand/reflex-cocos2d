@@ -4,10 +4,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecursiveDo #-}
 module Reflex.Cocos2d.Accum.Class
-    (
-      MonadAccum(..)
-    )
-  where
+  (
+    MonadAccum(..)
+  ) where
 
 import Control.Monad.Trans
 import Control.Monad.Fix

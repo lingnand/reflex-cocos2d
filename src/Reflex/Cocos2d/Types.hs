@@ -1,35 +1,34 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 module Reflex.Cocos2d.Types
-    ( Mouse(Mouse)
-    , mouseCursorLocation
-    , mouseScroll
-    , mouseButton
-    , Touch(Touch)
-    , touchLocation
-    , Acceleration(Acceleration)
-    , accelerationVector
-    , accelerationTimestamp
+  ( Mouse(Mouse)
+  , mouseCursorLocation
+  , mouseScroll
+  , mouseButton
+  , Touch(Touch)
+  , touchLocation
+  , Acceleration(Acceleration)
+  , accelerationVector
+  , accelerationTimestamp
 
-    , Outline(Outline)
-    , outlineColor
-    , outlineSize
-    , Shadow(Shadow)
-    , shadowColor
-    , shadowOffset
-    , shadowBlur
-    , Glow(Glow)
-    , glowColor
+  , Outline(Outline)
+  , outlineColor
+  , outlineSize
+  , Shadow(Shadow)
+  , shadowColor
+  , shadowOffset
+  , shadowBlur
+  , Glow(Glow)
+  , glowColor
 
-    -- re-export cocos2d-hs types
-    , Size(..)
-    , size_width
-    , size_height
+  -- re-export cocos2d-hs types
+  , Size(..)
+  , size_width
+  , size_height
 
-    , Rect(..)
-    , rect_origin
-    , rect_size
-    )
-  where
+  , Rect(..)
+  , rect_origin
+  , rect_size
+  ) where
 
 import Data.Default
 import Diagrams (Point(..), P2, V2(..), V3(..))

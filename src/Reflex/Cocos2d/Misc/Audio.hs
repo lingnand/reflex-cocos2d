@@ -1,17 +1,16 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Reflex.Cocos2d.Misc.Audio
-    ( AudioStateCommand(..)
-    , AudioInstance
-    , playAudio
-    , getAudioFinishedEvent
-    , preloadAudio
-    -- attrs
-    , audioState
-    , loop
-    , volume
-    , currentTime
-    )
-  where
+  ( AudioStateCommand(..)
+  , AudioInstance
+  , playAudio
+  , getAudioFinishedEvent
+  , preloadAudio
+  -- attrs
+  , audioState
+  , loop
+  , volume
+  , currentTime
+  ) where
 
 import Control.Monad.Trans
 

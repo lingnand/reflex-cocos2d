@@ -1,34 +1,33 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 module Reflex.Cocos2d.Attributes.Node
-    ( anchor
-    , anchorX
-    , anchorY
-    , skew
-    , skewX
-    , skewY
-    , zOrder
-    , scale
-    , scaleX
-    , scaleY
-    , visible
-    , color
-    , opacity
-    , alphaColor
-    , cascadeColor
-    , cascadeOpacity
-    , contentSize
-    , width
-    , height
-    -- , action
-    , texture
-    , textureFilename
-    , textureRect
-    , flipped
-    , flippedX
-    , flippedY
-    )
-  where
+  ( anchor
+  , anchorX
+  , anchorY
+  , skew
+  , skewX
+  , skewY
+  , zOrder
+  , scale
+  , scaleX
+  , scaleY
+  , visible
+  , color
+  , opacity
+  , alphaColor
+  , cascadeColor
+  , cascadeOpacity
+  , contentSize
+  , width
+  , height
+  -- , action
+  , texture
+  , textureFilename
+  , textureRect
+  , flipped
+  , flippedX
+  , flippedY
+  ) where
 
 import Data.Colour
 import Control.Monad

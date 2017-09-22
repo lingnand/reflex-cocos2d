@@ -8,40 +8,39 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 -- | Concepts largely taken from Graphics.UI.WX.Attributes
 module Reflex.Cocos2d.Attributes.Base
-    ( Attrib(..)
-    , Attrib'
-    , ROAttrib(..)
-    , ROAttrib'
-    , WOAttrib(..)
-    , WOAttrib'
-    , Prop(..)
-    , IsSettable(..)
-    , IsGettable(..)
-    , mapAttrib
-    , get
-    , setProps
-    , hoistA
-    , divide
-    , divided
-    , choose
-    , chosen
-    -- * classes and generalizations
-    , HasROPositionAttrib(..)
-    , HasRWPositionAttrib(..)
-    , HasROAngleAttrib(..)
-    , HasRWAngleAttrib(..)
-    , HasRWTextAttrib(..)
-    , positionFrom
-    , angleFrom
-    , transformFrom
-    -- * combinators
-    , evt
-    , dyn
-    , dyn'
-    , uDyn
-    , uDyn'
-    )
-  where
+  ( Attrib(..)
+  , Attrib'
+  , ROAttrib(..)
+  , ROAttrib'
+  , WOAttrib(..)
+  , WOAttrib'
+  , Prop(..)
+  , IsSettable(..)
+  , IsGettable(..)
+  , mapAttrib
+  , get
+  , setProps
+  , hoistA
+  , divide
+  , divided
+  , choose
+  , chosen
+  -- * classes and generalizations
+  , HasROPositionAttrib(..)
+  , HasRWPositionAttrib(..)
+  , HasROAngleAttrib(..)
+  , HasRWAngleAttrib(..)
+  , HasRWTextAttrib(..)
+  , positionFrom
+  , angleFrom
+  , transformFrom
+  -- * combinators
+  , evt
+  , dyn
+  , dyn'
+  , uDyn
+  , uDyn'
+  ) where
 
 import Data.Colour
 import Data.Functor.Contravariant

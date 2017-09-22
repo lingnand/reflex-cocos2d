@@ -12,32 +12,31 @@
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ConstraintKinds #-}
 module Reflex.State
-    (
-      MonadAccState(..)
-    , MonadDynState
-    , MonadEventState
-    , MonadUniqDynState
-    , MonadBehaviorState
-    , AccZoom(..)
+  (
+    MonadAccState(..)
+  , MonadDynState
+  , MonadEventState
+  , MonadUniqDynState
+  , MonadBehaviorState
+  , AccZoom(..)
 
-    , AccStateT
-    , DynStateT
-    , EventStateT
-    , UniqDynStateT
-    , BehaviorStateT
+  , AccStateT
+  , DynStateT
+  , EventStateT
+  , UniqDynStateT
+  , BehaviorStateT
 
-    , watches
-    , refine
-    , adjust
+  , watches
+  , refine
+  , adjust
 
-    , runAccStateT
-    , execAccStateT
-    , evalAccStateT
+  , runAccStateT
+  , execAccStateT
+  , evalAccStateT
 
-    , pnon
-    , pnon'
-    )
-  where
+  , pnon
+  , pnon'
+  ) where
 
 
 import Data.Maybe

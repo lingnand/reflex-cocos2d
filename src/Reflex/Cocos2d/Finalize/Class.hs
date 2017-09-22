@@ -2,10 +2,9 @@
 -- | The class that adds Finalizable actions that should be triggered when the existing effects are
 -- 'undone' (i.e., when MonadAdjust is triggered)
 module Reflex.Cocos2d.Finalize.Class
-    (
-      MonadFinalize(..)
-    )
-  where
+  (
+    MonadFinalize(..)
+  ) where
 
 import Control.Monad.Trans
 import Reflex.PostBuild.Base

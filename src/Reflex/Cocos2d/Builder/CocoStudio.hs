@@ -1,16 +1,15 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Reflex.Cocos2d.Builder.CocoStudio
-    ( CSLoaderException(..)
-    , loadNodeFromCS
-    , addNodeFromCS
-    , loadSpriteFromCS
-    , addSpriteFromCS
-    , loadWidgetFromCS
-    , addWidgetFromCS
-    , loadNodeOfVisibleSizeFromCS
-    , addNodeOfVisibleSizeFromCS
-    )
-  where
+  ( CSLoaderException(..)
+  , loadNodeFromCS
+  , addNodeFromCS
+  , loadSpriteFromCS
+  , addSpriteFromCS
+  , loadWidgetFromCS
+  , addWidgetFromCS
+  , loadNodeOfVisibleSizeFromCS
+  , addNodeOfVisibleSizeFromCS
+  ) where
 
 import Data.Typeable
 import Control.Monad.Trans

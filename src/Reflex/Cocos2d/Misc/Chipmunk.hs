@@ -9,72 +9,71 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DefaultSignatures #-}
 module Reflex.Cocos2d.Misc.Chipmunk
-    (
-      Maskable(..)
+  (
+    Maskable(..)
 
-    , Space
+  , Space
 
-    , Shape
-    , ShapeAttributes
-    , shapeBody
-    -- these are actually modifiable attributes...
-    -- , shapeGeometry
-    -- , shapeOffset
-    -- , shapeMass
-    ----------------------
-    , shapeCategory
-    , shapeCategoryMask
-    , shapeCollisionMask
+  , Shape
+  , ShapeAttributes
+  , shapeBody
+  -- these are actually modifiable attributes...
+  -- , shapeGeometry
+  -- , shapeOffset
+  -- , shapeMass
+  ----------------------
+  , shapeCategory
+  , shapeCategoryMask
+  , shapeCollisionMask
 
-    , Body
+  , Body
 
-    , SpaceStep
+  , SpaceStep
 
-    , space
+  , space
 
-    , iterations
-    , gravity
-    , damping
-    , collisionSlop
-    , collisionBias
+  , iterations
+  , gravity
+  , damping
+  , collisionSlop
+  , collisionBias
 
-    , CollisionEvents(CollisionEvents)
-    , collisionBegan
-    , collisionEnded
-    , getCollisionEvents
+  , CollisionEvents(CollisionEvents)
+  , collisionBegan
+  , collisionEnded
+  , getCollisionEvents
 
-    , fanCollisionsByBody
+  , fanCollisionsByBody
 
-    , body
+  , body
 
-    , velocity
-    , maxVelocity
-    , force
-    , impulse
-    , maxAngVel
-    , torque
-    , active
+  , velocity
+  , maxVelocity
+  , force
+  , impulse
+  , maxAngVel
+  , torque
+  , active
 
-    , shape
+  , shape
 
-    , shapeAttributes
-    , mass
-    , offset
-    , geometry
-    , categoryMask
-    , category
-    , collisionMask
-    , group
-    , elasticity
-    , friction
-    , surfaceVel
+  , shapeAttributes
+  , mass
+  , offset
+  , geometry
+  , categoryMask
+  , category
+  , collisionMask
+  , group
+  , elasticity
+  , friction
+  , surfaceVel
 
-    , localToWorld
-    , worldToLocal
-      -- re-export
-    , H.Geometry(..)
-    )
-  where
+  , localToWorld
+  , worldToLocal
+    -- re-export
+  , H.Geometry(..)
+  ) where
 
 import Data.Word
 import Data.Bits

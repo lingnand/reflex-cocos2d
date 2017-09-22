@@ -3,25 +3,24 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE LambdaCase #-}
 module Reflex.Cocos2d.Builder.Label
-    ( label
-    , label_
-    -- attrs --
-    , lineBreakWithoutSpace
-    , maxLineWidth
-    , boundingSize
-    , boundingWidth
-    , boundingHeight
-    , clipMargin
+  ( label
+  , label_
+  -- attrs --
+  , lineBreakWithoutSpace
+  , maxLineWidth
+  , boundingSize
+  , boundingWidth
+  , boundingHeight
+  , clipMargin
 
-    , systemFontName
-    , systemFontSize
-    -- re-export --
-    , Label
-    , LabelPtr
-    , TextHAlignment(..)
-    , TextVAlignment(..)
-    )
-  where
+  , systemFontName
+  , systemFontSize
+  -- re-export --
+  , Label
+  , LabelPtr
+  , TextHAlignment(..)
+  , TextVAlignment(..)
+  ) where
 
 import Diagrams (V2(..))
 import Control.Monad

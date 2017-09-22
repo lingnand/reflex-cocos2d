@@ -5,11 +5,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 module Reflex.Cocos2d.Internal
-    (
-      SpiderNodeBuilder
-    , mainScene
-    )
-  where
+  (
+    SpiderNodeBuilder
+  , mainScene
+  ) where
 
 import Data.Coerce
 import Data.Sequence

@@ -4,30 +4,29 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Reflex.Extra
-    ( dropWhileE
-    , breakE
-    , accumEWith
-    , accumE
-    , postponeCurrent
-    , postpone
-    , dynMaybe
-    , modulate
-    , stack
-    , distribute
-    -- * Free stuff
-    , runWithReplaceFree
-    , waitEvent
-    , waitEvent'
-    , waitEvent_
-    , waitDynMaybe
-    , waitDynMaybe'
-    , waitDynMaybe_
-    , switchFree
-    , switchFreeT
-    -- * Rand stuff
-    , liftRandE
-    )
-  where
+  ( dropWhileE
+  , breakE
+  , accumEWith
+  , accumE
+  , postponeCurrent
+  , postpone
+  , dynMaybe
+  , modulate
+  , stack
+  , distribute
+  -- * Free stuff
+  , runWithReplaceFree
+  , waitEvent
+  , waitEvent'
+  , waitEvent_
+  , waitDynMaybe
+  , waitDynMaybe'
+  , waitDynMaybe_
+  , switchFree
+  , switchFreeT
+  -- * Rand stuff
+  , liftRandE
+  ) where
 
 import Data.Tuple (swap)
 import Data.Maybe

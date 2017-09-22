@@ -4,27 +4,26 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Reflex.Cocos2d.Builder.Node
-    ( node
-    , node_
-    , sprite
-    , sprite_
-    -- utils --
-    , getChildByName
-    , getChildSpriteByName
-    , getChildButtonByName
-    , getChildTextByName
-    , getChildLayoutByName
-    -- helper --
-    , addNewChild
-    -- re-export --
-    , Node
-    , Sprite
-    , Texture2D
+  ( node
+  , node_
+  , sprite
+  , sprite_
+  -- utils --
+  , getChildByName
+  , getChildSpriteByName
+  , getChildButtonByName
+  , getChildTextByName
+  , getChildLayoutByName
+  -- helper --
+  , addNewChild
+  -- re-export --
+  , Node
+  , Sprite
+  , Texture2D
 
-    , NodePtr(..)
-    , SpritePtr
-    )
-  where
+  , NodePtr(..)
+  , SpritePtr
+  ) where
 
 import Control.Monad
 import Control.Monad.Trans

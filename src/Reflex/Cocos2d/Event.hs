@@ -3,77 +3,76 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
 module Reflex.Cocos2d.Event
-    ( MouseEvents(MouseEvents)
-    , mouseDown
-    , mouseUp
-    , mouseMoved
-    , mouseScrolled
+  ( MouseEvents(MouseEvents)
+  , mouseDown
+  , mouseUp
+  , mouseMoved
+  , mouseScrolled
 
-    , TouchEvents(TouchEvents)
-    , touchBegan
-    , touchMoved
-    , touchEnded
-    , touchCancelled
-    , MultiTouchEvents(MultiTouchEvents)
-    , multiTouchBegan
-    , multiTouchMoved
-    , multiTouchEnded
-    , multiTouchCancelled
+  , TouchEvents(TouchEvents)
+  , touchBegan
+  , touchMoved
+  , touchEnded
+  , touchCancelled
+  , MultiTouchEvents(MultiTouchEvents)
+  , multiTouchBegan
+  , multiTouchMoved
+  , multiTouchEnded
+  , multiTouchCancelled
 
-    , KeyboardEvents(KeyboardEvents)
-    , keyPressed
-    , keyReleased
+  , KeyboardEvents(KeyboardEvents)
+  , keyPressed
+  , keyReleased
 
-    , getMouseEvents
-    , getTouchEvents
-    , getMultiTouchEvents
-    , getKeyboardEvents
-    , getAccelerations
+  , getMouseEvents
+  , getTouchEvents
+  , getMultiTouchEvents
+  , getKeyboardEvents
+  , getAccelerations
 
-    , accumKeysDown
+  , accumKeysDown
 
-    -- , DragEvent
-    -- , dragBegan
-    -- , dragMoved
-    -- , dragEnded
-    -- , dragged
+  -- , DragEvent
+  -- , dragBegan
+  -- , dragMoved
+  -- , dragEnded
+  -- , dragged
 
-    -- * Async
-    , loadTexture
-    -- , load
-    -- * Utility
-    -- , nodeContains
-    -- * Widget
-    -- , WidgetTouchEvents(WidgetTouchEvents)
-    -- , HasWidgetTouchEvents(..)
-    -- , WidgetEvents(WidgetEvents)
-    -- , widgetClicked
-    -- , widgetEvents
-    -- , pageViewEvents
-    -- , listViewEvents
-    -- , scrollViewEvents
-    -- , sliderEvents
-    -- , textFieldEvents
-    -- * Armature
-    -- , addArmatures
-    -- * re-export the lower level
-    , KeyCode(..)
+  -- * Async
+  , loadTexture
+  -- , load
+  -- * Utility
+  -- , nodeContains
+  -- * Widget
+  -- , WidgetTouchEvents(WidgetTouchEvents)
+  -- , HasWidgetTouchEvents(..)
+  -- , WidgetEvents(WidgetEvents)
+  -- , widgetClicked
+  -- , widgetEvents
+  -- , pageViewEvents
+  -- , listViewEvents
+  -- , scrollViewEvents
+  -- , sliderEvents
+  -- , textFieldEvents
+  -- * Armature
+  -- , addArmatures
+  -- * re-export the lower level
+  , KeyCode(..)
 
-    -- , PageView
-    -- , ListView
-    -- , ScrollView
-    -- , Slider
-    -- , TextField
-    -- , PageViewEvent(..)
-    -- , ListViewEvent(..)
-    -- , ScrollViewPos(..)
-    -- , ScrollViewEvent(..)
-    -- , SliderEvent(..)
-    -- , TextFieldEvent(..)
-    -- , loadCCS
-    -- , loadCCS'
-    )
-  where
+  -- , PageView
+  -- , ListView
+  -- , ScrollView
+  -- , Slider
+  -- , TextField
+  -- , PageViewEvent(..)
+  -- , ListViewEvent(..)
+  -- , ScrollViewPos(..)
+  -- , ScrollViewEvent(..)
+  -- , SliderEvent(..)
+  -- , TextFieldEvent(..)
+  -- , loadCCS
+  -- , loadCCS'
+  ) where
 
 -- import Diagrams.BoundingBox
 import qualified Data.Set as S
