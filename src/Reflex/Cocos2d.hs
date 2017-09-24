@@ -1,6 +1,9 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ConstraintKinds #-}
 module Reflex.Cocos2d
   (
     module X
+  , CocosBuilder
   ) where
 
 import Reflex.Cocos2d.Finalize.Base as X
@@ -22,3 +25,17 @@ import Reflex.Cocos2d.Event as X
 import Reflex.Cocos2d.Types as X
 import Reflex.Cocos2d.Decomposable as X
 import Reflex.Cocos2d.Internal  as X
+
+import qualified Control.Monad.Fix as F
+import qualified Control.Monad.Trans as T
+import qualified Reflex as R
+
+-- | Convenience constraint synonym for a cocos builder monad
+type CocosBuilder t m =
+  ( X.NodeBuilder t m
+  , F.MonadFix m, R.MonadHold t m
+  , R.PostBuild t m, X.MonadAccum t m, R.MonadAdjust t m
+  , T.MonadIO m, X.FastTriggerEvent t m
+  , X.MonadFinalize m, T.MonadIO (X.Finalizable m)
+  , R.PerformEvent t m, T.MonadIO (R.Performable m)
+  )

@@ -189,8 +189,8 @@ instance (MonadAdjust t m, MonadHold t m) => MonadAdjust t (AccStateT t f s m) w
     traverseDMapWithKeyWithAdjustWithMove _ _ _ = error "traverseDMapWithKeyWithAdjustWithMove not implemented for FinalizeT"
 
 instance (MonadFix m, MonadHold t m, MonadAccum t m) => MonadAccum t (AccStateT t f s m) where
-    runWithAccumulation z em = AccStateT $ StateT $ \s -> ReaderT $ \r -> do
-      ((a, sz), ers) <- runWithAccumulation (_runAccStateT z r []) $ (\m -> _runAccStateT m r []) <$> em
+    runWithAccum z em = AccStateT $ StateT $ \s -> ReaderT $ \r -> do
+      ((a, sz), ers) <- runWithAccum (_runAccStateT z r []) $ (\m -> _runAccStateT m r []) <$> em
       let onNewAdjusters _ [] = Nothing
           onNewAdjusters adj adjs = Just $! mergeWith composeMaybe (adjs++[adj])
       adjBeh <- accumMaybe onNewAdjusters (mergeWith composeMaybe sz) (snd <$> ers)

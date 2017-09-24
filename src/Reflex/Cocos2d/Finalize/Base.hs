@@ -129,9 +129,9 @@ instance (MonadRun n m, MonadAdjust t m, MonadFix m, MonadSample t m, MonadHold 
 
 instance (MonadHold t m, MonadFix m, MonadAccum t m, MonadSample t n)
         => MonadAccum t (FinalizeT t n m) where
-    runWithAccumulation zm em = do
+    runWithAccum zm em = do
         ((a, finZ), ers) <- lift $
-            runWithAccumulation
+            runWithAccum
                 (runFinalizeT zm (return ()))
                 (flip runFinalizeT (return ()) <$> em)
         let onNewFinalizer old new = new >> old

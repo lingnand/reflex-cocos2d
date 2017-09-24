@@ -14,6 +14,9 @@ module Reflex.Extra
   , modulate
   , stack
   , distribute
+
+  , runWithReplaceDyn'
+
   -- * Free stuff
   , runWithReplaceFree
   , waitEvent
@@ -149,6 +152,14 @@ distribute tasks n workerDones = do
                     _ -> Nothing
         dist = ffor ids $ \id -> fforMaybe out' $ \(t, id') -> guard (id' == id) >> return t
     return (dSt, dist, failed)
+
+-- | Take a Dynamic and immediately run its current value; the effects will be
+--   replaced by new effects from the Event of the Dynamic.
+runWithReplaceDyn' :: (MonadHold t m, MonadAdjust t m) => Dynamic t (m a) -> m (Dynamic t a)
+runWithReplaceDyn' d = do
+  m0 <- sample (current d)
+  (a0, ea) <- runWithReplace m0 (updated d)
+  holdDyn a0 ea
 
 -- Free related
 

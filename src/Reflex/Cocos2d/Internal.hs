@@ -86,7 +86,7 @@ instance MonadIO m => MonadRun Finalizer m where
 
 -- XXX: why do we have to fix the monad to SpiderHost Global...?
 instance (ReflexHost t, PrimMonad (HostFrame t)) => MonadAccum t (PerformEventT t (SpiderHost Global)) where
-    runWithAccumulation outerA0 outerA' = PerformEventT $ runWithAccumulationRequesterTWith f (coerce outerA0) (coerceEvent outerA')
+    runWithAccum outerA0 outerA' = PerformEventT $ runWithAccumRequesterTWith f (coerce outerA0) (coerceEvent outerA')
       where f :: PrimMonad (HostFrame t) => HostFrame t a -> Event t (HostFrame t b) -> RequesterT t (HostFrame t) Identity (HostFrame t) (a, Event t b)
             f a0 a' = do
               result0 <- lift a0
@@ -94,26 +94,26 @@ instance (ReflexHost t, PrimMonad (HostFrame t)) => MonadAccum t (PerformEventT 
               return (result0, result')
 
 -- XXX: duplicated functions to achieve accumulation
-runWithAccumulationRequesterTWith :: forall m t request response a b. (Reflex t, MonadHold t m, MonadFix m)
+runWithAccumRequesterTWith :: forall m t request response a b. (Reflex t, MonadHold t m, MonadFix m)
                              => (forall a' b'. m a' -> Event t (m b') -> RequesterT t request response m (a', Event t b'))
                              -> RequesterT t request response m a
                              -> Event t (RequesterT t request response m b)
                              -> RequesterT t request response m (a, Event t b)
-runWithAccumulationRequesterTWith f a0 a' =
+runWithAccumRequesterTWith f a0 a' =
   let f' :: forall a' b'. ReaderT (EventSelector t (WrapArg response (Tag (PrimState m)))) m a'
          -> Event t (ReaderT (EventSelector t (WrapArg response (Tag (PrimState m)))) m b')
          -> EventWriterT t (DMap (Tag (PrimState m)) request) (ReaderT (EventSelector t (WrapArg response (Tag (PrimState m)))) m) (a', Event t b')
       f' x y = do
         r <- EventWriterT ask
         unRequesterT (f (runReaderT x r) (fmapCheap (`runReaderT` r) y))
-  in RequesterT $ runWithAccumulationEventWriterTWith f' (coerce a0) (coerceEvent a')
+  in RequesterT $ runWithAccumEventWriterTWith f' (coerce a0) (coerceEvent a')
 
-runWithAccumulationEventWriterTWith :: forall m t w a b. (Reflex t, MonadHold t m, MonadFix m, Semigroup w)
+runWithAccumEventWriterTWith :: forall m t w a b. (Reflex t, MonadHold t m, MonadFix m, Semigroup w)
                                => (forall a' b'. m a' -> Event t (m b') -> EventWriterT t w m (a', Event t b'))
                                -> EventWriterT t w m a
                                -> Event t (EventWriterT t w m b)
                                -> EventWriterT t w m (a, Event t b)
-runWithAccumulationEventWriterTWith f a0 a' = do
+runWithAccumEventWriterTWith f a0 a' = do
   let g :: EventWriterT t w m c -> m (c, Seq (Event t w))
       g (EventWriterT r) = runStateT r mempty
       combine :: Seq (Event t w) -> Event t w

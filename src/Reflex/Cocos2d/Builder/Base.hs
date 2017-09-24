@@ -144,8 +144,8 @@ instance MonadAdjust t m => MonadAdjust t (ImmediateNodeBuilderT t m) where
         ImmediateNodeBuilderT $ traverseDMapWithKeyWithAdjustWithMove (\k v -> unImmediateNodeBuilderT $ f k v) dm0 dm'
 
 instance MonadAccum t m => MonadAccum t (ImmediateNodeBuilderT t m) where
-    runWithAccumulation zm em = ImmediateNodeBuilderT $ ReaderT $ \r ->
-        runWithAccumulation (runReaderT (unImmediateNodeBuilderT zm) r)
+    runWithAccum zm em = ImmediateNodeBuilderT $ ReaderT $ \r ->
+        runWithAccum (runReaderT (unImmediateNodeBuilderT zm) r)
           ((\m -> runReaderT (unImmediateNodeBuilderT m) r) <$> em)
 
 runImmediateNodeBuilderT :: ImmediateNodeBuilderT t m a -> NodeBuilderEnv t -> m a
