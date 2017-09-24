@@ -20,4 +20,5 @@ import Reflex.Cocos2d.Misc.Chipmunk as X
 import Reflex.Cocos2d.Misc.Logging as X
 import Reflex.Cocos2d.Event as X
 import Reflex.Cocos2d.Types as X
+import Reflex.Cocos2d.Decomposable as X
 import Reflex.Cocos2d.Internal  as X
