@@ -87,7 +87,7 @@ waitDynMaybe_ :: (Reflex t, MonadSample t m, PostBuild t m) => Dynamic t (Maybe 
 waitDynMaybe_ = void . waitDynMaybe
 
 waitDynBool :: (Reflex t, MonadSample t m, PostBuild t m) => Dynamic t Bool -> EventVisitorT t m ()
-waitDynBool = waitDynMaybe . fmap (bool (Just ()) Nothing)
+waitDynBool = waitDynMaybe . fmap (bool Nothing (Just ()))
 
 previewFree :: FreeF f a b -> Maybe (f b)
 previewFree (Free fb) = Just fb
