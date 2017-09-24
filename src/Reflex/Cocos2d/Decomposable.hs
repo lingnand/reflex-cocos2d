@@ -19,7 +19,8 @@ import qualified Data.Set    as S
 import qualified Data.Array  as A
 
 class Decomposable container where
-  type Component container :: *
+  type ComponentKey container :: *
+  type Component    container :: *
   -- | Decompose a Dynamic data structure into components that are changing over time
   --   The return value is a Dynamic over a list, which records all the *new*
   --   components that appear over time.
@@ -28,60 +29,68 @@ class Decomposable container where
   decomposeDyn
     :: ( Eq (Component container)
        , Reflex t, MonadHold t m, MonadFix m )
-    => Dynamic t container -> m (Dynamic t [Dynamic t (Maybe (Component container))])
+    => Dynamic t container
+    -> m (Dynamic t [( ComponentKey container
+                     , Dynamic t (Maybe (Component container))
+                     )])
 
 instance Decomposable (IM.IntMap v) where
-  type Component (IM.IntMap v) = (Int, v)
-  decomposeDyn = decomposeIntMapDyn (fmap . (,))
+  type ComponentKey (IM.IntMap v) = Int
+  type Component    (IM.IntMap v) = v
+  decomposeDyn = decomposeIntMapDyn id
 
 instance Decomposable [v] where
-  type Component [v] = v
+  type ComponentKey [v] = Int
+  type Component    [v] = v
   -- probably need to convert into a IntMap first
-  decomposeDyn dList = decomposeIntMapDyn (flip const) dMap
+  decomposeDyn dList = decomposeIntMapDyn id dMap
     where dMap = IM.fromList . zip [0..] <$> dList
 
 instance Decomposable (Pool a) where
-  type Component (Pool a) = a
-  decomposeDyn = decomposeIntMapDyn (\_ v -> join v) . (slots <$>)
+  type ComponentKey (Pool a) = Int
+  type Component    (Pool a) = a
+  decomposeDyn = decomposeIntMapDyn join . (slots <$>)
 
 instance Ord k => Decomposable (M.Map k v) where
-  type Component (M.Map k v) = (k, v)
-  decomposeDyn = decomposeMapDyn (fmap . (,))
+  type ComponentKey (M.Map k v) = k
+  type Component    (M.Map k v) = v
+  decomposeDyn = decomposeMapDyn id
 
 instance A.Ix i => Decomposable (A.Array i e) where
-  type Component (A.Array i e) = (i, e)
+  type ComponentKey (A.Array i e) = i
+  type Component    (A.Array i e) = e
   decomposeDyn dArr = do
     let updatef a oldIndices | diff <- A.indices a L.\\ oldIndices
-                          , not (L.null diff) = Just diff
-                          | otherwise = Nothing
+                             , not (L.null diff) = Just diff
+                             | otherwise = Nothing
         safeIndex i arr | A.inRange (A.bounds arr) i = Just $ arr A.! i
                         | otherwise = Nothing
     dIndices <- scanDynMaybe A.indices updatef dArr
-    return $ map (\i -> uniqDyn $ fmap (i,) . safeIndex i <$> dArr) <$> dIndices
+    return $ map (\i -> (i, uniqDyn $ safeIndex i <$> dArr)) <$> dIndices
 
 decomposeIntMapDyn
   :: ( Eq x
      , Reflex t, MonadHold t m, MonadFix m )
-  => (Int -> Maybe v -> x)
+  => (Maybe v -> x)
   -> Dynamic t (IM.IntMap v)
-  -> m (Dynamic t [Dynamic t x])
+  -> m (Dynamic t [(Int, Dynamic t x)])
 decomposeIntMapDyn trans dMap = do
   let updatef m oldKeys | diff <- IM.keysSet m `IS.difference` oldKeys
                         , not (IS.null diff) = Just diff
                         | otherwise = Nothing
   dKeys <- scanDynMaybe IM.keysSet updatef dMap
-  return $ map (\k -> uniqDyn $ trans k . IM.lookup k <$> dMap) . IS.elems <$> dKeys
+  return $ map (\k -> (k, uniqDyn $ trans . IM.lookup k <$> dMap)) . IS.elems <$> dKeys
 
 -- similar to IntMap but with Map instead
 decomposeMapDyn
   :: ( Eq x, Ord k
      , Reflex t, MonadHold t m, MonadFix m )
-  => (k -> Maybe v -> x)
+  => (Maybe v -> x)
   -> Dynamic t (M.Map k v)
-  -> m (Dynamic t [Dynamic t x])
+  -> m (Dynamic t [(k, Dynamic t x)])
 decomposeMapDyn trans dMap = do
   let updatef m oldKeys | diff <- M.keysSet m `S.difference` oldKeys
                         , not (S.null diff) = Just diff
                         | otherwise = Nothing
   dKeys <- scanDynMaybe M.keysSet updatef dMap
-  return $ map (\k -> uniqDyn $ trans k . M.lookup k <$> dMap) . S.elems <$> dKeys
+  return $ map (\k -> (k, uniqDyn $ trans . M.lookup k <$> dMap)) . S.elems <$> dKeys
