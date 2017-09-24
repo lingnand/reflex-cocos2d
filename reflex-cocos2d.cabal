@@ -33,6 +33,7 @@ library
                      , Reflex.Cocos2d.Internal
                      , Reflex.Extra
                      , Reflex.State
+                     , Reflex.EventVisitor
                      , Data.Pool
   other-modules:       Reflex.Cocos2d.Internal.Global
   ghc-options:         -Wall -fno-warn-orphans -fno-warn-name-shadowing

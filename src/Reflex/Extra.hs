@@ -2,7 +2,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 module Reflex.Extra
   ( dropWhileE
   , breakE
@@ -17,16 +16,8 @@ module Reflex.Extra
 
   , runWithReplaceDyn'
 
-  -- * Free stuff
-  , runWithReplaceFree
-  , waitEvent
-  , waitEvent'
-  , waitEvent_
-  , waitDynMaybe
-  , waitDynMaybe'
-  , waitDynMaybe_
   , switchFree
-  , switchFreeT
+
   -- * Rand stuff
   , liftRandE
   ) where
@@ -37,7 +28,6 @@ import Data.Semigroup
 import Reflex
 import Control.Monad
 import Control.Monad.Fix
-import Control.Monad.Trans
 import Control.Monad.Trans.Free
 import Control.Monad.Random
 import Control.Applicative
@@ -161,56 +151,15 @@ runWithReplaceDyn' d = do
   (a0, ea) <- runWithReplace m0 (updated d)
   holdDyn a0 ea
 
--- Free related
-
--- | Greedy Free
-runWithReplaceFree ::
-  forall t m a.
-  (MonadFix m , PostBuild t m , MonadHold t m, MonadAdjust t m)
-  => FreeT (Event t) m a -> m (Event t a)
-runWithReplaceFree ft = do
-    rec (result0, newResult) <- runWithReplace (runFreeT ft) (runFreeT <$> newFs)
-        let startE = case result0 of
-              Pure _ -> never :: Event t (FreeT (Event t) m a)
-              Free e -> e
-        newFs <- switchPromptly startE (fmapMaybe previewFree newResult)
-    case result0 of
+-- | Merge a deeply nested Event into a single Event
+switchFree ::
+  (Reflex t, MonadHold t m, PostBuild t m)
+  => Free (Event t) a -> m (Event t a)
+switchFree f = do
+    let hoist (Identity x) = return x
+    switchFreeT' hoist hoist f >>= \case
       Pure a -> postpone a
-      _ -> return $ fmapMaybe previewPure newResult
-
--- ** Operations to be used in seqHoldFree
--- | Wait for the first occurrence
-waitEvent :: (Reflex t, Monad m) => Event t a -> FreeT (Event t) m a
-waitEvent = liftF
-
--- | Wait for the first occurrence and include the future occurrences in return
-waitEvent' :: (Reflex t, Monad m) => Event t a -> FreeT (Event t) m (a, Event t a)
-waitEvent' e = (,e) <$> liftF e
-
-waitEvent_ :: (Reflex t, Monad m) => Event t a -> FreeT (Event t) m ()
-waitEvent_ = void . waitEvent
-
--- | Wait for the Dynamic to turn from Nothing to Just
-waitDynMaybe :: (Reflex t, MonadSample t m) => Dynamic t (Maybe a) -> FreeT (Event t) m a
-waitDynMaybe dyn = lift (sample $ current dyn) >>= \case
-    Just a -> return a
-    _ -> waitEvent $ fmapMaybe id (updated dyn)
-
--- | Wait for the first Just value, and include the future values in return
-waitDynMaybe' :: (Reflex t, MonadSample t m) => Dynamic t (Maybe a) -> FreeT (Event t) m (a, Event t a)
-waitDynMaybe' dyn = (,fmapMaybe id $ updated dyn) <$> waitDynMaybe dyn
-
-waitDynMaybe_ :: (Reflex t, MonadSample t m) => Dynamic t (Maybe a) -> FreeT (Event t) m ()
-waitDynMaybe_ = void . waitDynMaybe
-
-previewFree :: FreeF f a b -> Maybe (f b)
-previewFree (Free fb) = Just fb
-previewFree _ = Nothing
-
-previewPure :: FreeF f a b -> Maybe a
-previewPure (Pure a) = Just a
-previewPure _ = Nothing
-
+      Free e -> return e
 
 switchFreeT' ::
   (Reflex t, MonadHold t m)
@@ -224,25 +173,15 @@ switchFreeT' hoistM hoistPush ft = hoistM (runFreeT ft) >>= \case
                             Pure a -> return $ a <$ e
                             Free ie -> return ie
 
--- | Merge a deeply nested Event into a single Event
-switchFree ::
-  (Reflex t, MonadHold t m, PostBuild t m)
-  => Free (Event t) a -> m (Event t a)
-switchFree f = do
-    let hoist (Identity x) = return x
-    switchFreeT' hoist hoist f >>= \case
-      Pure a -> postpone a
-      Free e -> return e
-
-switchFreeT ::
-  (Reflex t, PostBuild t m, MonadHold t m)
-  => FreeT (Event t) (PushM t) a -> m (Event t a)
-switchFreeT f = do
-    e <- getPostBuild
-    let e' = flip pushAlways e $ \_ -> switchFreeT' id id f >>= \case
-          Pure a -> return $ a <$ e
-          Free e -> return e
-    switchPromptly never e'
+-- switchFreeT ::
+--   (Reflex t, PostBuild t m, MonadHold t m)
+--   => FreeT (Event t) (PushM t) a -> m (Event t a)
+-- switchFreeT f = do
+--     e <- getPostBuild
+--     let e' = flip pushAlways e $ \_ -> switchFreeT' id id f >>= \case
+--           Pure a -> return $ a <$ e
+--           Free e -> return e
+--     switchPromptly never e'
 
 -- Random helpers
 

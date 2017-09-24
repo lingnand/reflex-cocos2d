@@ -21,6 +21,7 @@ module Reflex.Cocos2d.Builder.Widget
   , widgetClicked
   -- creation
   , button
+  , button_
   -- attrs
   , sizeType
   , positionType
@@ -143,8 +144,8 @@ widgetClicked f (WidgetEvents te clicked)
 instance HasWidgetTouchEvents (WidgetEvents t) t where
     widgetTouchEvents = weToWTouchEvents
 
-getWidgetTouchEvents ::
-  (WidgetPtr w, NodeBuilder t m, FastTriggerEvent t m)
+getWidgetTouchEvents
+  :: (WidgetPtr w, NodeBuilder t m, FastTriggerEvent t m)
   => w -> m (WidgetTouchEvents t)
 getWidgetTouchEvents w = do
     touchTypes <- fastNewEventWithLazyTriggerWithOnComplete $ \triggerFunc -> do
@@ -169,8 +170,8 @@ getWidgetClicks w = fastNewEventWithLazyTriggerWithOnComplete $ \triggerFunc -> 
       widget_addClickEventListener w $ \_ -> triggerFunc () (return ())
       return $ pure ()
 
-getWidgetEvents ::
-  (WidgetPtr w, NodeBuilder t m, FastTriggerEvent t m)
+getWidgetEvents
+  :: (WidgetPtr w, NodeBuilder t m, FastTriggerEvent t m)
   => w -> m (WidgetEvents t)
 getWidgetEvents w = WidgetEvents <$> getWidgetTouchEvents w <*> getWidgetClicks w
 
@@ -208,15 +209,22 @@ findLayoutByName :: (MonadIO m, WidgetPtr w) => w -> String -> m (Maybe Layout)
 findLayoutByName = findWidgetByName' downToLayout
 
 -- creating new widgets
-button ::
-  ( MonadIO m, NodeBuilder t m
-  , FastTriggerEvent t m
-  , MonadFinalize m, MonadIO (Finalizable m) )
+button
+  :: ( MonadIO m, NodeBuilder t m
+     , FastTriggerEvent t m
+     , MonadFinalize m, MonadIO (Finalizable m) )
   => [Prop Button m] -> m (Button, Event t ())
 button props = do
     but <- addNewChild button_create props
     we <- getWidgetClicks but
     return (but, we)
+
+button_
+  :: ( MonadIO m, NodeBuilder t m
+     , FastTriggerEvent t m
+     , MonadFinalize m, MonadIO (Finalizable m) )
+  => [Prop Button m] -> m (Event t ())
+button_ = fmap snd . button
 
 positionType :: (MonadIO m, WidgetPtr w) => Attrib' w m PositionType
 positionType = hoistA liftIO $ Attrib widget_getPositionType widget_setPositionType
