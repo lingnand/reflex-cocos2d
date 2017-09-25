@@ -14,7 +14,9 @@ module Reflex.Extra
   , stack
   , distribute
 
+  , runWithReplace_
   , runWithReplaceDyn'
+  , runWithReplaceDyn'_
 
   , switchFree
 
@@ -143,6 +145,9 @@ distribute tasks n workerDones = do
         dist = ffor ids $ \id -> fforMaybe out' $ \(t, id') -> guard (id' == id) >> return t
     return (dSt, dist, failed)
 
+runWithReplace_ :: MonadAdjust t m => m a -> Event t (m b) -> m ()
+runWithReplace_ m0 em = void $ runWithReplace m0 em
+
 -- | Take a Dynamic and immediately run its current value; the effects will be
 --   replaced by new effects from the Event of the Dynamic.
 runWithReplaceDyn' :: (MonadHold t m, MonadAdjust t m) => Dynamic t (m a) -> m (Dynamic t a)
@@ -150,6 +155,12 @@ runWithReplaceDyn' d = do
   m0 <- sample (current d)
   (a0, ea) <- runWithReplace m0 (updated d)
   holdDyn a0 ea
+
+runWithReplaceDyn'_ :: (MonadHold t m, MonadAdjust t m) => Dynamic t (m a) -> m ()
+runWithReplaceDyn'_ d = do
+  m0 <- sample (current d)
+  _ <- runWithReplace m0 (updated d)
+  return ()
 
 -- | Merge a deeply nested Event into a single Event
 switchFree ::
