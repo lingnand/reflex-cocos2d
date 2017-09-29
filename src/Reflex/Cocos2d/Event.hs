@@ -32,11 +32,11 @@ module Reflex.Cocos2d.Event
 
   , accumKeysDown
 
-  -- , DragEvent
-  -- , dragBegan
-  -- , dragMoved
-  -- , dragEnded
-  -- , dragged
+  , TouchSeq
+  , touchFirst
+  , touchLast
+  , touchAll
+  , accumTouchSeqEvent
 
   -- * Async
   , loadTexture
@@ -76,6 +76,7 @@ module Reflex.Cocos2d.Event
 
 -- import Diagrams.BoundingBox
 import qualified Data.Set as S
+import Data.Maybe
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.Trans
@@ -346,26 +347,46 @@ accumKeysDown (KeyboardEvents pressedE releasedE) = do
 --     p' <- convertToNodeSpace n p
 --     return $ fromCorners 0 (0.+^sz) `contains` p'
 
--- a datatype representing the necessary information regarding a drag event
--- data DragEvent t = DragEvent { _dragBegan :: Touch
---                              , _dragMoved :: Event t Touch
---                              , _dragEnded :: Event t Touch
---                              }
--- makeLenses ''DragEvent
---
--- -- return Event (dragStart, Event dragging, Event dragEnd)
--- dragged :: NodeGraph t m => SingleTouchEvents t -> m (Event t (DragEvent t))
--- dragged (SingleTouchEvents began moved ended _) = do
---     let mstream = leftmost [ (True,) <$> moved
---                            , (False,) <$> ended
---                            ]
---     rec e' <- onEvent began $ \t -> do
---           (ms, _) <- sample b'
---           (movedSeg, ms') <- breakE fst ms
---           (endedSeg, ms'') <- headTailE ms'
---           return (ms'', Just $ DragEvent t (snd <$> movedSeg) (snd <$> endedSeg))
---         b' <- hold (mstream, Nothing) e'
---     return $ fmapMaybe snd e'
+data TouchSeq = TouchSeq
+  { _touchFirst :: Touch
+  -- ^ reverse ordered subsequent moves for easy 'appending'
+  , _touchMoves :: [Touch]
+  , _touchLast  :: Maybe Touch
+  } deriving Eq
+
+touchFirst :: Lens' TouchSeq Touch
+touchFirst f (TouchSeq first nexts last) = (\first' -> TouchSeq first' nexts last) <$> f first
+{-# INLINE touchFirst #-}
+
+touchLast :: Traversal' TouchSeq Touch
+touchLast _ seq@(TouchSeq _ _ Nothing) = pure seq
+touchLast f (TouchSeq first moves (Just last)) =
+  (\last' -> TouchSeq first moves (Just last')) <$> f last
+{-# INLINE touchLast #-}
+
+touchAll :: Getter TouchSeq [Touch]
+touchAll = to $ \(TouchSeq first nexts last) -> (first:reverse nexts) ++ maybeToList last
+{-# INLINE touchAll #-}
+
+accumTouchSeqEvent
+  :: (Reflex t, MonadHold t m, MonadFix m)
+  => TouchEvents t -> m (Event t TouchSeq)
+accumTouchSeqEvent (TouchEvents began moved ended cancelled) = do
+  accumed <- accum (&) Nothing $ mergeWith (.)
+    [ updateBegin <$> began
+    , updateMove <$> moved
+    , updateEnd <$> ended
+    , updateEnd <$> cancelled
+    ]
+  return $ fmapMaybe id (updated accumed)
+  where
+    updateBegin t _ = Just $ TouchSeq t [] Nothing
+    -- if the previous seq is finished, we need to start a new one
+    updateMove t (Just (TouchSeq _ _ (Just _))) = Just $ TouchSeq t [] Nothing
+    updateMove t (Just seq) = Just $ seq{ _touchMoves = t:_touchMoves seq }
+    updateMove _ _ = Nothing
+    updateEnd t (Just seq) = Just $ seq{ _touchLast = Just t }
+    updateEnd _ _ = Nothing
 
 -- ticks' :: NodeGraph t m => NominalDiffTime -> m (Event t NominalDiffTime)
 -- ticks' interval = do

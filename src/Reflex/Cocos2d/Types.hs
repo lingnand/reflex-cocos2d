@@ -44,7 +44,7 @@ data Mouse = Mouse
     { _mouseCursorLocation :: P2 Float
     , _mouseScroll         :: V2 Float
     , _mouseButton         :: Int
-    }
+    } deriving (Show, Eq)
 
 mouseButton :: Lens' Mouse Int
 mouseButton f (Mouse loc scroll but)
@@ -72,7 +72,7 @@ instance Decodable EventMouseConst Mouse where
 
 data Touch = Touch
     { _touchLocation :: P2 Float
-    }
+    } deriving (Show, Eq)
 
 touchLocation :: Lens' Touch (P2 Float)
 touchLocation f (Touch loc) = fmap Touch (f loc)
