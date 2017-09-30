@@ -86,6 +86,7 @@ import Graphics.UI.Cocos2d (Decodable(..), HasContents(..))
 
 import Reflex
 
+import qualified Foreign as F
 import Graphics.UI.Cocos2d.Event hiding (Event)
 import qualified Graphics.UI.Cocos2d.Event as CE
 import Graphics.UI.Cocos2d.Director
@@ -272,22 +273,34 @@ getMouseEvents = do
 
 getTouchEvents :: forall t m. (MonadIO m, FastTriggerEvent t m) => m (TouchEvents t)
 getTouchEvents = do
-    let wrapEvent :: (EventListenerTouchOneByOne -> (EventTouch -> CE.Event -> IO ()) -> IO ()) -> m (Event t Touch)
-        wrapEvent callbackSetter =
+    -- XXX: we have to create a listener instance and keep it in memory as
+    -- multiple events might depend on it (cannot clean up easily per individual
+    -- event; cannot create one listener per event either as
+    -- {move,end,cancel}touch events can only be handled if begin events are
+    -- already handled by a listener)
+    l <- liftIO eventListenerTouchOneByOne_create
+    let wrapEvent
+          :: ((EventTouch -> CE.Event -> IO ()) -> IO (F.FunPtr f))
+          -> (EventListenerTouchOneByOne -> F.FunPtr f -> IO ())
+          -> m (Event t Touch)
+        wrapEvent newFunPtr setFunPtr =
           fastNewEventWithLazyTriggerWithOnComplete $ \triggerFunc -> do
-            l <- eventListenerTouchOneByOne_create
-            callbackSetter l $ \et _ -> do
+            fp <- newFunPtr $  \et _ -> do
               t <- decode et
               triggerFunc t (return ())
+            setFunPtr l fp
             eventDispatcher_addEventListenerWithFixedPriority globalEventDispatcher l (-1)
-            return $ eventDispatcher_removeEventListener globalEventDispatcher l
-        setOnTouchBegan l cb =
+            return $ do
+              setFunPtr l F.nullFunPtr -- reset to nullptr callback
+              F.freeHaskellFunPtr fp -- release the fun ptr
+        touchBegan_newFunPtr' cb =
           -- always return True (handles the Touch)
-          eventListenerTouchOneByOne_onTouchBegan_set l $ \et evt -> cb et evt >> return True
-    TouchEvents <$> wrapEvent setOnTouchBegan
-                <*> wrapEvent eventListenerTouchOneByOne_onTouchMoved_set
-                <*> wrapEvent eventListenerTouchOneByOne_onTouchEnded_set
-                <*> wrapEvent eventListenerTouchOneByOne_onTouchCancelled_set
+          eventTouchBeganCallback_newFunPtr $ \et evt -> cb et evt >> return True
+    TouchEvents
+      <$> wrapEvent touchBegan_newFunPtr' eventListenerTouchOneByOne_onTouchBegan_set
+      <*> wrapEvent eventTouchCallback_newFunPtr eventListenerTouchOneByOne_onTouchMoved_set
+      <*> wrapEvent eventTouchCallback_newFunPtr eventListenerTouchOneByOne_onTouchEnded_set
+      <*> wrapEvent eventTouchCallback_newFunPtr eventListenerTouchOneByOne_onTouchCancelled_set
 
 getMultiTouchEvents :: forall t m. (MonadIO m, FastTriggerEvent t m) => m (MultiTouchEvents t)
 getMultiTouchEvents = do
@@ -387,12 +400,6 @@ accumTouchSeqEvent (TouchEvents began moved ended cancelled) = do
     updateMove _ _ = Nothing
     updateEnd t (Just seq) = Just $ seq{ _touchLast = Just t }
     updateEnd _ _ = Nothing
-
--- ticks' :: NodeGraph t m => NominalDiffTime -> m (Event t NominalDiffTime)
--- ticks' interval = do
---     runWithActions <- askRunWithActions
---     newEventWithTrigger $ \et ->
---         scheduleUpdate' interval True $ \d -> runWithActions [et :=> Identity d]
 
 -- | Delay an Event by the given amount of seconds
 -- TODO: every time this is called the previous "delayed" is invalidated
