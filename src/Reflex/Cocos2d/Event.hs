@@ -279,6 +279,7 @@ getTouchEvents = do
     -- {move,end,cancel}touch events can only be handled if begin events are
     -- already handled by a listener)
     l <- liftIO eventListenerTouchOneByOne_create
+    liftIO $ eventDispatcher_addEventListenerWithFixedPriority globalEventDispatcher l (-1)
     let wrapEvent
           :: ((EventTouch -> CE.Event -> IO ()) -> IO (F.FunPtr f))
           -> (EventListenerTouchOneByOne -> F.FunPtr f -> IO ())
@@ -289,7 +290,6 @@ getTouchEvents = do
               t <- decode et
               triggerFunc t (return ())
             setFunPtr l fp
-            eventDispatcher_addEventListenerWithFixedPriority globalEventDispatcher l (-1)
             return $ do
               setFunPtr l F.nullFunPtr -- reset to nullptr callback
               F.freeHaskellFunPtr fp -- release the fun ptr
