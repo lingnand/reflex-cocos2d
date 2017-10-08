@@ -278,29 +278,31 @@ getTouchEvents = do
     -- event; cannot create one listener per event either as
     -- {move,end,cancel}touch events can only be handled if begin events are
     -- already handled by a listener)
-    l <- liftIO eventListenerTouchOneByOne_create
-    liftIO $ eventDispatcher_addEventListenerWithFixedPriority globalEventDispatcher l (-1)
-    let wrapEvent
-          :: ((EventTouch -> CE.Event -> IO ()) -> IO (F.FunPtr f))
-          -> (EventListenerTouchOneByOne -> F.FunPtr f -> IO ())
-          -> m (Event t Touch)
-        wrapEvent newFunPtr setFunPtr =
+    -- Also note: we have to make the touch begin event always fire, as all
+    -- other events depends on that event being set
+    (eBegan, trigger) <- fastNewTriggerEvent
+    l <- liftIO $ do
+      l <- eventListenerTouchOneByOne_create
+      eventListenerTouchOneByOne_onTouchBegan_set l <=< eventTouchBeganCallback_newFunPtr $
+        \et _ -> do
+          decode et >>= trigger
+          -- always return True (handles the Touch)
+          return True
+      eventDispatcher_addEventListenerWithFixedPriority globalEventDispatcher l (-1)
+      return l
+    let wrapEvent setFunPtr =
           fastNewEventWithLazyTriggerWithOnComplete $ \triggerFunc -> do
-            fp <- newFunPtr $  \et _ -> do
+            fp <- eventTouchCallback_newFunPtr $  \et _ -> do
               t <- decode et
               triggerFunc t (return ())
             setFunPtr l fp
             return $ do
               setFunPtr l F.nullFunPtr -- reset to nullptr callback
               F.freeHaskellFunPtr fp -- release the fun ptr
-        touchBegan_newFunPtr' cb =
-          -- always return True (handles the Touch)
-          eventTouchBeganCallback_newFunPtr $ \et evt -> cb et evt >> return True
-    TouchEvents
-      <$> wrapEvent touchBegan_newFunPtr' eventListenerTouchOneByOne_onTouchBegan_set
-      <*> wrapEvent eventTouchCallback_newFunPtr eventListenerTouchOneByOne_onTouchMoved_set
-      <*> wrapEvent eventTouchCallback_newFunPtr eventListenerTouchOneByOne_onTouchEnded_set
-      <*> wrapEvent eventTouchCallback_newFunPtr eventListenerTouchOneByOne_onTouchCancelled_set
+    TouchEvents eBegan
+      <$> wrapEvent eventListenerTouchOneByOne_onTouchMoved_set
+      <*> wrapEvent eventListenerTouchOneByOne_onTouchEnded_set
+      <*> wrapEvent eventListenerTouchOneByOne_onTouchCancelled_set
 
 getMultiTouchEvents :: forall t m. (MonadIO m, FastTriggerEvent t m) => m (MultiTouchEvents t)
 getMultiTouchEvents = do
